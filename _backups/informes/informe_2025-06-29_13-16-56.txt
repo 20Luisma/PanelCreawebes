@@ -1,0 +1,3 @@
+Backup creado el 2025-06-29_13-16-56
+Archivos incluidos:
+index.php
