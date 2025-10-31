@@ -76,17 +76,6 @@ Funciones disponibles desde la interfaz web:
 - Si querés agregar funcionalidades nuevas (compresión zip, vista tipo tabla, multiusuario), el código está modularizado para escalar fácilmente.
 - Ideal para uso personal o como panel de administración privado.
 
----
-🔜 Próximos pasos:
+--
 
-Separar los controladores del index.php
-
-Crear un microservicio en PHP para hablar con OpenAI
-
-Otro microservicio para el sistema RAG (vectorización + recuperación)
-
-Añadir un login seguro por usuarios
-
-Pasar de JSON a SQLite/MySQL sin romper la estructura limpia
-
-© 2025 – Luis Martín Pallante
+© 2025 – Creawebes
