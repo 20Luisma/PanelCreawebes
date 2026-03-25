@@ -1,0 +1,31 @@
+# Dependencias y Builds
+node_modules/
+vendor/
+dist/
+build/
+
+# Secretos y Entornos (¡CRÍTICO!)
+.env
+.env.local
+*.pem
+
+# Datos del panel (no subir al repo)
+usuarios/
+.papelera_creawebes/
+_backups/
+Historiales/
+*.json
+!package.json
+backup_*.zip
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Archivos de test/debug locales
+test.php
+test-json.php
+test-puppeteer.js
+test_cron.php
+pija/
+puto.jpg

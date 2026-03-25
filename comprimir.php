@@ -1,38 +1,17 @@
 <?php
-// Comprimir archivos seleccionados en un ZIP
-$root = realpath(__DIR__);
-$archivos = json_decode($_POST['archivos_json'] ?? '[]', true);
-$destinoRel = trim($_POST['destino'] ?? '');
-$nombreZip = basename($_POST['nombre'] ?? 'archivo.zip');
+// Incluimos verificar_sesion.php que ya inicia sesión y protege el endpoint
+require_once __DIR__ . '/verificar_sesion.php';
 
-$rutaDestino = $destinoRel === '' ? $root : realpath($root . '/' . $destinoRel);
-if (!$rutaDestino || strpos($rutaDestino, $root) !== 0) {
-    http_response_code(400);
-    exit('❌ Carpeta destino inválida.');
-}
+use Infrastructure\Service\ZipService;
+use Application\UseCase\ZipUseCase;
+use Presentation\Controller\ZipController;
 
-$zipRuta = $rutaDestino . '/' . $nombreZip;
-$zip = new ZipArchive();
-if ($zip->open($zipRuta, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
-    http_response_code(500);
-    exit('❌ No se pudo crear el archivo ZIP.');
-}
+// verificar_sesion.php define ROOT_DIR y prepara $pathSecurityService
+global $pathSecurityService;
 
-foreach ($archivos as $relativo) {
-    $abs = realpath($root . '/' . $relativo);
-    if (!$abs || strpos($abs, $root) !== 0) continue;
+$zipService = new ZipService($pathSecurityService, ROOT_DIR);
+$zipUseCase = new ZipUseCase($zipService, ROOT_DIR);
+$zipController = new ZipController($zipUseCase);
 
-    if (is_file($abs)) {
-        $zip->addFile($abs, basename($abs));
-    } elseif (is_dir($abs)) {
-        $dirIter = new RecursiveDirectoryIterator($abs, RecursiveDirectoryIterator::SKIP_DOTS);
-        $iterador = new RecursiveIteratorIterator($dirIter);
-        foreach ($iterador as $archivo) {
-            $rutaInterna = substr($archivo, strlen($abs) + 1);
-            $zip->addFile($archivo, basename($abs) . '/' . $rutaInterna);
-        }
-    }
-}
-$zip->close();
-
-echo '✅ ZIP creado con éxito';
+$zipController->handleCompressRequest($_POST);
+?>

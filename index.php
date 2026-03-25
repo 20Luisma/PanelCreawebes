@@ -1,21 +1,87 @@
 <?php
-session_start();
-if (!isset($_SESSION['logueado']) || $_SESSION['logueado'] !== true) {
-    header('Location: login.php');
-    exit;
+// 1. Incluimos nuestro gestor de sesión.
+//    Él se encarga de TODO: iniciar la sesión, verificar la inactividad y actualizarla.
+require_once __DIR__ . '/verificar_sesion.php'; // ROOT_DIR ya está definido aquí y las funciones de protección
+
+// 2. Cerramos la sesión para escritura.
+//    Esto es VITAL para que los clics rápidos no te deslogueen.
+//    Este paso solo se hace en `index.php` (la interfaz principal).
+session_write_close();
+header('Content-Type: text/html; charset=UTF-8');
+
+// 3. Ya podemos usar las variables de sesión de forma segura.
+//    La variable sigue existiendo aunque la sesión esté "cerrada" para escritura.
+// $esAdmin = isset($_SESSION['admin']) && $_SESSION['admin'] === true; // Ya definida en verificar_sesion.php y globalmente disponible
+
+// ### INICIO: NUEVO CÓDIGO PARA GESTIONAR CARPETAS DE USUARIO ###
+$archivoActividad = __DIR__ . '/actividad_usuarios.json';
+$actividadUsuarios = file_exists($archivoActividad) ? json_decode(file_get_contents($archivoActividad), true) : [];
+$nombreCarpetaUsuarioLogueado = '';
+$carpetasDeUsuarios = [];
+
+// Generar lista de nombres de carpeta para todos los usuarios
+if (is_array($actividadUsuarios)) {
+    foreach ($actividadUsuarios as $datos) {
+        if (isset($datos['nombre']) && isset($datos['apellido'])) {
+            $nombreCompleto = trim($datos['nombre'] . ' ' . $datos['apellido']);
+            if (!empty($nombreCompleto)) {
+                // Genera un nombre de carpeta seguro (debe coincidir con gestor_usuarios.php)
+                $nombreSanitizado = str_replace(' ', '_', $nombreCompleto);
+$nombreSanitizado = preg_replace('/[^\p{L}0-9_.-]/u', '_', $nombreSanitizado);
+$carpetasDeUsuarios[] = $nombreSanitizado;
+
+            }
+        }
+    }
 }
+
+// Obtener el nombre de la carpeta para el usuario actual
+if (isset($_SESSION['usuario']) && isset($actividadUsuarios[$_SESSION['usuario']])) {
+    $datosUsuario = $actividadUsuarios[$_SESSION['usuario']];
+    $nombreCompleto = trim(($datosUsuario['nombre'] ?? '') . ' ' . ($datosUsuario['apellido'] ?? ''));
+    if (!empty($nombreCompleto)) {
+        $nombreCarpetaUsuarioLogueado = preg_replace('/[^a-zA-Z0-9_.-]/', '_', str_replace(' ', '_', $nombreCompleto));
+    }
+}
+// ### FIN: NUEVO CÓDIGO ###
+
+// ### INICIO: CÓDIGO PARA CARPETAS COMPARTIDAS ###
+$archivoCompartidos = __DIR__ . '/compartidos.json';
+$infoCompartidos = file_exists($archivoCompartidos) ? json_decode(file_get_contents($archivoCompartidos), true) : [];
+
+// Creamos un mapa de carpetas compartidas CONMIGO para un acceso rápido
+$compartidasConmigo = [];
+if (!$esAdmin && !empty($nombreCarpetaUsuarioLogueado)) {
+    foreach ($infoCompartidos as $rutaPadre => $usuariosConAcceso) {
+        if (in_array($nombreCarpetaUsuarioLogueado, $usuariosConAcceso)) {
+            // El usuario logueado tiene acceso a $rutaPadre
+            // Si estamos viendo la carpeta "usuarios", marcaremos la carpeta del dueño
+            $partes = explode('/', $rutaPadre);
+            if (count($partes) > 1) {
+                 $compartidasConmigo[] = $partes[1];
+            }
+        }
+    }
+}
+// ### FIN: CÓDIGO PARA CARPETAS COMPARTIDAS ###
+
+
 /* =========================================================
  * Explorador de Archivos – Creawebes (versión 14-jun-2025)
  * Ahora pregunta si se quiere reemplazar cuando al mover
  * existe un archivo o carpeta con el mismo nombre.
- * =======================================================*/
+ * ======================================================= */
 
 // ---------- Ajustes iniciales ----------
-$root            = realpath(__DIR__);     // Carpeta raíz
+$root            = ROOT_DIR;     // Carpeta raíz (Ya definida como constante en verificar_sesion.php)
 $carpetaRelativa = $_GET['carpeta'] ?? '';      // Carpeta actual (relativa)
 $error           = $_GET['error']    ?? '';      // Código de error
 $rutaActual      = realpath($root . '/' . $carpetaRelativa);
-if (!$rutaActual || strpos($rutaActual, $root) !== 0) die("Ruta inválida.");
+
+// ✅ Comprobación de que la ruta actual está dentro del ROOT_DIR y es válida.
+if (!$rutaActual || !estaDentroDe($rutaActual, $root)) {
+    die("Ruta inválida.");
+}
 
 // Crear carpeta de papelera si no existe
 $papelera = $root . '/.papelera_creawebes';
@@ -25,79 +91,120 @@ if (!is_dir($papelera)) {
 }
 
 
-// ---------- Helpers ----------
-function obtenerRutaRelativa($root, $abs) {
-    return ltrim(str_replace($root, '', $abs), '/\\');
+
+// MODIFICACIÓN 1: DEFINIR ARCHIVOS DE SISTEMA A OCULTAR
+$archivosSistema = [
+    // --- CARPETAS DE SISTEMA ---
+    '_backups',
+    'Historiales',
+    '_informes_restore',
+    '.instalador_creawebes',
+    'src',
+    'vendor',
+    'partials',
+    'assets',
+    'test',
+    'pija',
+    'memory_backups',
+
+    // --- HERRAMIENTAS DE DESARROLLO (NO DEBEN SER VISIBLES) ---
+    '.agents',
+    '.vscode',
+    '.cursorrules',
+
+    // --- CONFIGURACIÓN Y ENTORNO ---
+    '.env',
+    '.env.example',
+    '.gitignore',
+    '.htaccess',
+    'autoload.php',
+
+    // --- DOCUMENTACIÓN INTERNA ---
+    'MEMORY.md',
+    '_MEMORY.bak.md',
+    'Auditoria_Inicial.md',
+    'README.md',
+    'readme.txt',
+
+    // --- ARCHIVOS DEL PANEL (PHP ENDPOINTS) ---
+    'archivocrear.php',
+    'backup.php',
+    'backup_cron.php',
+    'backup_proc.php',
+    'buscar.php',
+    'conectados.php',
+    'comprimir.php',
+    'CrearNuevo Archivo.php',
+    'crear_hash.php',
+    'default.php',
+    'latido.php',
+    'api_carpetas.php',
+    'api_contador.php',
+    'descomprimir.php',
+    'download.php',
+    'editor.php',
+    'funciones.php',
+    'gestionar_usuarios.php',
+    'gestor_compartir.php',
+    'index.php',
+    'login.php',
+    'logout.php',
+    'preview.php',
+    'restaurar.php',
+    'restaurar_proc.php',
+    'restaurar_proc_completo.php',
+    'test_cron.php',
+    'usuarios.php',
+    'ver_backups.php',
+    'verificar_sesion.php',
+    'chat_api.php',
+
+    // --- DATOS JSON DEL SISTEMA ---
+    'usuarios_activos.json',
+    '.usuarios_online.json',
+    'actividad_usuarios.json',
+    'mensajes.json',
+    'compartidos.json',
+
+    // --- ARCHIVOS MULTIMEDIA DEL SISTEMA ---
+    'llamada.mp3',
+    'relampago.mp3',
+    'notificacion.mp3',
+    'puto.jpg',
+
+    // --- OTROS ---
+    'google66cdb90433076f9f.html',
+    'sitemap.xml',
+    '.papelera_creawebesindex.php'
+];
+// Agregar dinámicamente cualquier backup_*.zip suelto en la raíz
+foreach (glob(ROOT_DIR . '/backup_*.zip') as $bkFile) {
+    $archivosSistema[] = basename($bkFile);
 }
-function iconoArchivo($n) {
-    $ext = strtolower(pathinfo($n, PATHINFO_EXTENSION));
-    return match ($ext) {
-        'jpg','jpeg','png','gif','webp' => '🖼️',
-        'pdf'                           => '📄',
-        'php','html','js','css','txt'         => '💻', // Agregado 'txt' para el icono de código
-        'zip','rar'                     => '🗜️',
-        'mp3','wav'                     => '🎵',
-        'mp4','mov'                     => '🎞️',
-        default                         => '📄',
-    };
-}
-function breadcrumb($rel) {
-    if (!$rel) return '📁 <strong>Inicio</strong>';
-    $p   = explode('/', $rel);
-    $out = ['<a href="index.php">Inicio</a>'];
-    $acc = [];
-    foreach ($p as $seg) {
-        $acc[] = $seg;
-        $out[] = '<a href="index.php?carpeta=' . urlencode(implode('/', $acc)) . '">' .
-                 htmlspecialchars($seg) . '</a>';
-    }
-    return '📁 ' . implode(' / ', $out);
-}
-function duplicarCarpeta($src, $dst) {
-    mkdir($dst);
-    foreach (scandir($src) as $i) {
-        if ($i === '.' || $i === '..') continue;
-        $s = "$src/$i";
-        $d = "$dst/$i";
-        is_dir($s) ? duplicarCarpeta($s, $d) : copy($s, $d);
-    }
-}
-/* Elimina recursivamente archivos o carpetas (para sobrescribir) */
-function eliminarRecursivo($ruta) {
-    if (is_dir($ruta) && !is_link($ruta)) {
-        foreach (scandir($ruta) as $i) {
-            if ($i === '.' || $i === '..') continue;
-            eliminarRecursivo("$ruta/$i");
-        }
-        rmdir($ruta);
-    } elseif (file_exists($ruta)) {
-        unlink($ruta);
-    }
-}
-function listarCarpetas($ruta, $base = '', $root = '') {
-    $root = $root ?: $ruta;
-    $out  = [];
-    foreach (scandir($ruta) as $i) {
-        if ($i === '.' || $i === '..') continue;
-        $abs = "$ruta/$i";
-        if (is_dir($abs)) {
-            // Asegurarse de no listar la papelera a menos que estemos dentro de ella
-            if ($abs === $root . '/.papelera_creawebes' && $base === '') {
-                continue;
-            }
-            $rel  = ltrim("$base/$i", '/');
-            $out[] = $rel;
-            $out   = array_merge($out, listarCarpetas($abs, $rel, $root));
-        }
-    }
-    return $out;
-}
+require_once __DIR__ . '/partials/helpers.php';
 
 /* ---------- API para <select> de destinos ---------- */
 if (isset($_GET['listar'])) {
     header('Content-Type: application/json');
     $todas  = listarCarpetas($root);
     $actual = $_GET['actual'] ?? '';
+    $mostrarSistema = isset($_GET['sistema']) && $_GET['sistema'] === '1' && $esAdmin;
+    
+    // Filtrar carpetas de sistema si el toggle está apagado
+    if (!$mostrarSistema) {
+        $carpetasSistema = array_filter($archivosSistema, function($item) use ($root) {
+            return is_dir($root . '/' . $item);
+        });
+        $todas = array_filter($todas, function($carpeta) use ($carpetasSistema) {
+            foreach ($carpetasSistema as $oculta) {
+                if ($carpeta === $oculta || str_starts_with($carpeta, $oculta . '/')) {
+                    return false;
+                }
+            }
+            return true;
+        });
+    }
+    
     echo json_encode(array_values(array_filter(
         array_merge([''], $todas),
         fn($c) => $c !== $actual       // quita la carpeta actual
@@ -105,1040 +212,503 @@ if (isset($_GET['listar'])) {
     exit;
 }
 
-/* ---------- Acciones POST ---------- */
+/* ---------- Acciones POST (delegadas a FileExplorerService) ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $accion      = $_POST['accion']  ?? '';
-    $objetivoRel = $_POST['archivo'] ?? ''; // Obtiene la ruta relativa completa del JS
-    $rutaObjAbs  = realpath($root . '/' . $objetivoRel); // Ruta absoluta del archivo/carpeta a duplicar
+    $objetivoRel = $_POST['archivo'] ?? '';
+    $rutaObjAbs  = $objetivoRel ? realpath($root . '/' . $objetivoRel) : null;
+    
+// ⛔ Bloquear acciones sobre carpeta 'usuarios' y '.papelera_creawebes' si no sos admin
+if (
+    isset($objetivoRel) &&
+    (
+        $objetivoRel === 'usuarios' ||
+        str_starts_with($objetivoRel, 'usuarios/') ||
+        $objetivoRel === '.papelera_creawebes'
+    )
+) {
+    $accionesNoPermitidas = ['eliminar', 'renombrar', 'mover', 'duplicar'];
+    $esAccionCompartir = $accion === 'compartir';
 
-    // Validar que la ruta del objetivo esté dentro de $root
-    if (!$rutaObjAbs || strpos($rutaObjAbs, $root) !== 0) {
-        // Manejar un intento de acceso a rutas fuera del explorador
+    if (in_array($accion, $accionesNoPermitidas) && !$esAdmin && !$esAccionCompartir) {
+        $esDueño = false;
+        if (!empty($nombreCarpetaUsuarioLogueado) && str_starts_with($objetivoRel, 'usuarios/' . $nombreCarpetaUsuarioLogueado . '/')) {
+            $esDueño = true;
+        }
+        if (!$esDueño) {
+            header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) . '&error=protegido');
+            exit;
+        }
+    }
+    if (
+        in_array($accion, ['eliminar', 'renombrar', 'mover']) &&
+        in_array($objetivoRel, ['usuarios', '.papelera_creawebes'])
+    ) {
+        header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) . '&error=protegido');
+        exit;
+    }
+}
+
+    if ($objetivoRel && $rutaObjAbs && !estaDentroDe($rutaObjAbs, $root)) {
         header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) . '&error=ruta_invalida');
         exit;
     }
 
+    require_once __DIR__ . '/src/autoload.php';
+    $explorerService = new \Infrastructure\Service\FileExplorerService($root);
+    $result = null;
 
     /* ---------- Subida de archivo ---------- */
     if (isset($_FILES['archivo']) && $_FILES['archivo']['error'] === UPLOAD_ERR_OK) {
-        move_uploaded_file($_FILES['archivo']['tmp_name'],
-                           $rutaActual . '/' . basename($_FILES['archivo']['name']));
-        header('Location: index.php?carpeta=' . urlencode($carpetaRelativa));
+        $result = $explorerService->upload($rutaActual, $_FILES['archivo']);
+        if (isset($result['error'])) {
+            header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) . '&error=' . $result['error']);
+        } else {
+            header('Location: index.php?carpeta=' . urlencode($carpetaRelativa));
+        }
         exit;
     }
 
     /* ---------- Resto de acciones ---------- */
     switch ($accion) {
         case 'vaciar_papelera':
-            $clave = $_POST['clave'] ?? '';
-            if ($clave !== '2020') {
-                header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) . '&error=clave');
-                exit;
-            }
+            $result = $explorerService->emptyTrash($_POST['clave'] ?? '', $carpetaRelativa);
+            break;
 
-            $papelera = $root . '/.papelera_creawebes';
-            if (is_dir($papelera)) {
-                $items = array_diff(scandir($papelera), ['.', '..']);
-                foreach ($items as $i) {
-                    $ruta = $papelera . '/' . $i;
-                    is_file($ruta) ? unlink($ruta) : eliminarRecursivo($ruta);
-                }
-            }
-
-            header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) . '&ok=papelera_vaciada');
-            exit;
-case 'restaurar':
-    $archivoRel = $_POST['archivo'] ?? '';
-    $archivoAbs = realpath($root . '/' . $archivoRel);
-
-    if (!$archivoAbs || strpos($archivoAbs, $papelera) !== 0) {
-        header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) . '&error=ruta_invalida');
-        exit;
-    }
-
-    $registrosPath = $papelera . '/registros.json';
-    if (!file_exists($registrosPath)) break;
-
-    $lineas = file($registrosPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    $nuevasLineas = [];
-    $restaurado = false;
-
-    foreach ($lineas as $linea) {
-        $registro = json_decode($linea, true);
-        if (isset($registro['eliminado']) && $registro['eliminado'] === $archivoRel) {
-            $destinoAbs = $root . '/' . $registro['original'];
-
-            $dirDestino = dirname($destinoAbs);
-            if (!is_dir($dirDestino)) mkdir($dirDestino, 0777, true);
-
-            if (file_exists($destinoAbs)) {
-                $destinoAbs = $dirDestino . '/restaurado_' . basename($destinoAbs);
-            }
-
-            rename($archivoAbs, $destinoAbs);
-            $restaurado = true;
-        } else {
-            $nuevasLineas[] = $linea;
-        }
-    }
-
-    if ($restaurado) {
-        file_put_contents($registrosPath, implode(PHP_EOL, $nuevasLineas) . PHP_EOL);
-    }
-
-    header('Location: index.php?carpeta=' . urlencode($carpetaRelativa));
-    exit;
+        case 'restaurar':
+            $result = $explorerService->restoreFromTrash($objetivoRel, $carpetaRelativa);
+            break;
 
         case 'eliminar':
-            // Determinar la carpeta de la que se elimina para la redirección
-            // Si el elemento eliminado es un archivo, la carpeta de redirección es su directorio padre
-            // Si el elemento eliminado es una carpeta, la carpeta de redirección es su directorio padre
-            $directorioPadreDelElemento = dirname($rutaObjAbs);
-            $carpetaRedireccion = obtenerRutaRelativa($root, $directorioPadreDelElemento);
-
-            // Si ya está en la papelera → eliminar definitivamente
-            if (str_contains($rutaObjAbs, '/.papelera_creawebes')) {
-                is_file($rutaObjAbs) ? unlink($rutaObjAbs) : eliminarRecursivo($rutaObjAbs);
-                // Si eliminamos desde la papelera, nos quedamos en la papelera
-                $carpetaRedireccion = '.papelera_creawebes';
-            } else {
-                
-           // Caso normal: mover a la papelera
-                $destinoPapelera = $root . '/.papelera_creawebes/' . basename($rutaObjAbs);
-                if (file_exists($destinoPapelera)) {
-                    $destinoPapelera = $root . '/.papelera_creawebes/' . time() . '_' . basename($rutaObjAbs);
-                }
-                rename($rutaObjAbs, $destinoPapelera);
-
-                // Registrar en logs
-                $registro = [
-                    'original'  => obtenerRutaRelativa($root, $rutaObjAbs),
-                    'eliminado' => obtenerRutaRelativa($root, $destinoPapelera),
-                    'fecha'     => date('Y-m-d H:i:s')
-                ];
-                file_put_contents(
-                    $root . '/.papelera_creawebes/registros.json',
-                    json_encode($registro, JSON_UNESCAPED_UNICODE) . PHP_EOL,
-                    FILE_APPEND
-                );
-            }
-            // Redirige a la carpeta donde se realizó la eliminación (el padre del elemento)
-            header('Location: index.php?carpeta=' . urlencode($carpetaRedireccion));
-            exit;
+            $result = $explorerService->delete($rutaObjAbs, $carpetaRelativa);
+            break;
 
         case 'renombrar':
-            $nuevo = basename($_POST['nuevo_nombre']); // Esto sigue siendo correcto para el nombre final
-            // Construir la ruta de destino para el renombrado
-            $rutaDestinoRenombrar = dirname($rutaObjAbs) . '/' . $nuevo;
-
-            if (!file_exists($rutaDestinoRenombrar)) {
-                rename($rutaObjAbs, $rutaDestinoRenombrar);
-            } else {
-                header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) .
-                       '&error=existe');
-                exit;
-            }
+            $result = $explorerService->rename($rutaObjAbs, $_POST['nuevo_nombre'] ?? '', $carpetaRelativa);
             break;
 
         case 'duplicar':
-            // $objetivoRel ya contiene la ruta relativa del item (ej. "carpeta/mi_archivo.txt")
-            $nombreBaseObjetivo = basename($rutaObjAbs); // Obtener solo el nombre del archivo/carpeta
-            $directorioOriginal = dirname($rutaObjAbs); // Directorio donde está el archivo/carpeta original
-
-            $copia = $directorioOriginal . '/copia_' . $nombreBaseObjetivo;
-
-            if (!file_exists($copia)) {
-                if (is_file($rutaObjAbs)) {
-                    copy($rutaObjAbs, $copia);
-                } elseif (is_dir($rutaObjAbs)) {
-                    duplicarCarpeta($rutaObjAbs, $copia);
-                }
-                // Redirigir a la carpeta donde se creó la copia
-                $carpetaDestinoDuplicado = obtenerRutaRelativa($root, $directorioOriginal);
-                header('Location: index.php?carpeta=' . urlencode($carpetaDestinoDuplicado));
-                exit;
-            } else {
-                header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) .
-                       '&error=existe');
-                exit;
-            }
+            $result = $explorerService->duplicate($rutaObjAbs, $carpetaRelativa);
             break;
 
         case 'crear_carpeta':
-            $nombre = basename($_POST['nueva_carpeta']);
-            if (!file_exists($rutaActual . '/' . $nombre)) {
-                mkdir($rutaActual . '/' . $nombre);
-            } else {
-                header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) .
-                       '&error=existe');
-                exit;
-            }
+            $result = $explorerService->createFolder($rutaActual, $_POST['nueva_carpeta'] ?? '');
             break;
 
         case 'crear_archivo':
-            $nombreArchivo = basename($_POST['nombre_archivo']);
-            $contenido     = $_POST['contenido'] ?? '';
-            if (!file_exists($rutaActual . '/' . $nombreArchivo)) {
-                file_put_contents($rutaActual . '/' . $nombreArchivo, $contenido);
-            } else {
-                header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) .
-                       '&error=existe');
-                exit;
-            }
+            $result = $explorerService->createFile($rutaActual, $_POST['nombre_archivo'] ?? '', $_POST['contenido'] ?? '');
             break;
 
-        /* ---------- Mover archivo / carpeta individual ---------- */
         case 'mover':
-            $destinoRel   = trim($_POST['destino'] ?? '');
-            $rutaDestAbs  = $destinoRel === '' ? $root
-                                                 : realpath($root . '/' . $destinoRel);
-            // $objetivo ahora es la ruta relativa completa (ej. "carpeta/mi_archivo.txt")
-            $nombreBaseParaDestino = basename($rutaObjAbs); // Nombre del archivo/carpeta
-            
-            if ($rutaDestAbs && strpos($rutaDestAbs, $root) === 0 &&
-                realpath($rutaDestAbs) !== realpath(dirname($rutaObjAbs))) { // Comprobar que no sea el mismo directorio
-
-                $nuevaRutaAbs = $rutaDestAbs . '/' . $nombreBaseParaDestino;
-                $forzar       = ($_POST['forzar'] ?? '') === '1';
-
-                if (file_exists($nuevaRutaAbs) && !$forzar) {
-                    /* Conflicto → redirige para preguntar */
-                    header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) .
-                                 '&error=conflicto&archivo=' . urlencode($objetivoRel) . // Usar objetivoRel aquí
-                                 '&destino=' . urlencode($destinoRel));
-                    exit;
-                }
-
-                /* Si forzar o no existe destino → mover */
-                if (file_exists($nuevaRutaAbs) && $forzar) {
-                    eliminarRecursivo($nuevaRutaAbs);
-                }
-                rename($rutaObjAbs, $nuevaRutaAbs);
-
-                /* Muestra ahora la carpeta destino */
-                header('Location: index.php?carpeta=' . urlencode($destinoRel));
-                exit;
-            }
+            $result = $explorerService->move($rutaObjAbs, trim($_POST['destino'] ?? ''), ($_POST['forzar'] ?? '') === '1', $carpetaRelativa);
             break;
-            case 'restaurar_multiple':
-            $archivosJson = $_POST['archivos_json'] ?? '[]';
-            $archivos     = json_decode($archivosJson, true);
 
-            $registrosPath = $papelera . '/registros.json';
-            $lineas = file_exists($registrosPath) ? file($registrosPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
-            $nuevasLineas = [];
-
-            foreach ($archivos as $archivoRelEnPapelera) {
-                $archivoAbsEnPapelera = realpath($root . '/' . $archivoRelEnPapelera);
-
-                // Validar que el archivo realmente está en la papelera
-                if (!$archivoAbsEnPapelera || strpos($archivoAbsEnPapelera, $papelera) !== 0) {
-                    continue; // Saltar si la ruta es inválida o no está en papelera
-                }
-
-                $restaurado = false;
-                $tempLineas = []; // Para reconstruir las líneas después de encontrar el registro
-
-                foreach ($lineas as $linea) {
-                    $registro = json_decode($linea, true);
-                    // Comparamos el "eliminado" del registro con el archivo actual en la papelera
-                    if (isset($registro['eliminado']) && $registro['eliminado'] === $archivoRelEnPapelera) {
-                        $destinoAbs = $root . '/' . $registro['original'];
-
-                        $dirDestino = dirname($destinoAbs);
-                        if (!is_dir($dirDestino)) {
-                            mkdir($dirDestino, 0777, true); // Crear la estructura de directorios si no existe
-                        }
-
-                        // Manejar el caso de que el archivo ya exista en la ubicación original
-                        if (file_exists($destinoAbs)) {
-                            // Opción 1: Renombrar el archivo restaurado para evitar sobrescribir
-                            $nombreBase = basename($destinoAbs);
-                            $extension = pathinfo($nombreBase, PATHINFO_EXTENSION);
-                            $nombreSinExt = ($extension === '') ? $nombreBase : substr($nombreBase, 0, -(strlen($extension) + 1));
-                            $contador = 1;
-                            $nuevoNombreDestino = $destinoAbs;
-
-                            while (file_exists($nuevoNombreDestino)) {
-                                $nuevoNombreDestino = $dirDestino . '/' . $nombreSinExt . '_restaurado' . $contador . (($extension === '') ? '' : '.' . $extension);
-                                $contador++;
-                            }
-                            $destinoAbs = $nuevoNombreDestino;
-
-                            // Opción 2 (alternativa a Opción 1, si prefieres sobrescribir - ¡con precaución!):
-                            // eliminarRecursivo($destinoAbs); // Descomenta si quieres sobrescribir
-                        }
-
-                        // Mover el archivo de la papelera a su destino final
-                        if (rename($archivoAbsEnPapelera, $destinoAbs)) {
-                            $restaurado = true;
-                            // No añadimos esta línea al array nuevasLineas, ya que ha sido restaurado
-                        } else {
-                            // Si falla la restauración, mantener el registro en el archivo para reintentar
-                            $tempLineas[] = $linea;
-                        }
-                    } else {
-                        $tempLineas[] = $linea;
-                    }
-                }
-                // Actualizamos las líneas principales con los que no se restauraron
-                $lineas = $tempLineas;
-            }
-
-            // Guardar el archivo de registros actualizado
-            file_put_contents($registrosPath, implode(PHP_EOL, $lineas) . PHP_EOL);
-
-            // Redirigir de vuelta a la papelera (o a donde desees)
-            header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) . '&ok=restaurados');
-            exit;
+        case 'restaurar_multiple':
+            $archivos = json_decode($_POST['archivos_json'] ?? '[]', true);
+            $result = $explorerService->restoreMultiple($archivos, $carpetaRelativa);
+            break;
 
         case 'eliminar_multiple':
-            $archivosJson = $_POST['archivos_json'] ?? '[]';
-            $archivos     = json_decode($archivosJson, true);
+            $archivos = json_decode($_POST['archivos_json'] ?? '[]', true);
+            $result = $explorerService->deleteMultiple($archivos, $carpetaRelativa);
+            break;
 
-            // Se asume que todos los archivos seleccionados para eliminar múltiple están en la misma carpeta
-            // Por lo tanto, la redirección será al padre del primer archivo (o a la carpeta actual si no hay archivos)
-            $carpetaRedireccion = $carpetaRelativa;
-            if (!empty($archivos)) {
-                $primerArchivoAbs = realpath($root . '/' . $archivos[0]);
-                if ($primerArchivoAbs && strpos($primerArchivoAbs, $root) === 0) {
-                    $carpetaRedireccion = obtenerRutaRelativa($root, dirname($primerArchivoAbs));
-                }
-            }
-
-
-            foreach ($archivos as $relativo) {
-                $abs = realpath($root . '/' . $relativo);
-                if (!$abs || strpos($abs, $root) !== 0) continue;
-
-                // Si ya está en la papelera → eliminar de verdad
-                if (str_contains($abs, '/.papelera_creawebes')) {
-                    is_file($abs) ? unlink($abs) : eliminarRecursivo($abs);
-                    // Si eliminamos desde la papelera, nos quedamos en la papelera
-                    $carpetaRedireccion = '.papelera_creawebes';
-                } else {
-                    // Si no → mover a papelera
-                    $destino = $root . '/.papelera_creawebes/' . basename($abs);
-                    if (file_exists($destino)) {
-                        $destino = $root . '/.papelera_creawebes/' . time() . '_' . basename($abs);
-                    }
-                    rename($abs, $destino);
-
-                    // Registrar en logs
-                    $registro = [
-                        'original'  => obtenerRutaRelativa($root, $abs),
-                        'eliminado' => obtenerRutaRelativa($root, $destino),
-                        'fecha'     => date('Y-m-d H:i:s')
-                    ];
-                    file_put_contents(
-                        $root . '/.papelera_creawebes/registros.json',
-                        json_encode($registro, JSON_UNESCAPED_UNICODE) . PHP_EOL,
-                        FILE_APPEND
-                    );
-                }
-            }
-            // Redirige a la carpeta donde se realizó la eliminación (el padre de los elementos)
-            header('Location: index.php?carpeta=' . urlencode($carpetaRedireccion));
-            exit;
-
-        /* ---------- Mover Múltiple ---------- */
         case 'mover_multiple':
-            $destinoRel   = trim($_POST['destino'] ?? '');
-            $archivosJson = $_POST['archivos_json'] ?? '[]';
-            $archivos     = json_decode($archivosJson, true);
-            $forzar       = ($_POST['forzar'] ?? '') === '1';
-
-            $rutaDestAbs  = $destinoRel === '' ? $root : realpath($root . '/' . $destinoRel);
-
-            if ($rutaDestAbs && strpos($rutaDestAbs, $root) === 0 && is_array($archivos)) {
-                $conflictos = [];
-                // Paso 1: Verificar conflictos si no se está forzando la operación
-                if (!$forzar) {
-                    foreach ($archivos as $nombreRelativo) {
-                        $origenAbs = realpath($root . '/' . $nombreRelativo);
-                        $nombre    = basename($nombreRelativo);
-                        $destAbs   = $rutaDestAbs . '/' . $nombre;
-
-                        if (file_exists($destAbs) && $origenAbs !== $destAbs) { // Asegurarse de no reportar conflicto si es el mismo archivo
-                            $conflictos[] = $nombreRelativo;
-                        }
-                    }
-                }
-
-                // Si hay conflictos y no se está forzando, redirigir para preguntar
-                if (!empty($conflictos) && !$forzar) {
-                    header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) .
-                                 '&error=conflicto_multiple&archivos=' . urlencode(json_encode($conflictos)) .
-                                 '&destino=' . urlencode($destinoRel));
-                    exit;
-                }
-
-                // Paso 2: Realizar el movimiento (ya sea sin conflictos o forzando)
-                foreach ($archivos as $nombreRelativo) {
-                    $origenAbs = realpath($root . '/' . $nombreRelativo);
-                    $nombre    = basename($nombreRelativo);
-                    $destAbs   = $rutaDestAbs . '/' . $nombre;
-
-                    if ($origenAbs && strpos($origenAbs, $root) === 0 && $origenAbs !== $destAbs) {
-                        if (file_exists($destAbs)) {
-                            eliminarRecursivo($destAbs); // Eliminar el existente si hay que sobrescribir
-                        }
-                        rename($origenAbs, $destAbs);
-                    }
-                }
-                header('Location: index.php?carpeta=' . urlencode($destinoRel));
-                exit;
-            } else {
-                 // Loguear o manejar error si el destino es inválido o archivos no es un array
-            }
+            $archivos = json_decode($_POST['archivos_json'] ?? '[]', true);
+            $result = $explorerService->moveMultiple($archivos, trim($_POST['destino'] ?? ''), ($_POST['forzar'] ?? '') === '1', $carpetaRelativa);
             break;
     }
 
-    /* Todas las acciones que llegan aquí vuelven a la carpeta actual, excepto duplicar */
-    // NOTA: Esta línea ya no será alcanzada por 'eliminar' o 'eliminar_multiple'
-    // porque ahora tienen su propio exit;
+    // Manejo unificado de la respuesta del servicio
+    if ($result) {
+        if (isset($result['error'])) {
+            $errorParam = $result['error'];
+            $extra = '';
+            if ($errorParam === 'conflicto' && isset($result['archivo'], $result['destino'])) {
+                $extra = '&archivo=' . urlencode($result['archivo']) . '&destino=' . urlencode($result['destino']);
+            } elseif ($errorParam === 'conflicto_multiple' && isset($result['archivos'], $result['destino'])) {
+                $extra = '&archivos=' . urlencode(json_encode($result['archivos'])) . '&destino=' . urlencode($result['destino']);
+            }
+            header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) . '&error=' . $errorParam . $extra);
+            exit;
+        }
+        if (isset($result['ok']) && is_string($result['ok'])) {
+            header('Location: index.php?carpeta=' . urlencode($result['redirect'] ?? $carpetaRelativa) . '&ok=' . $result['ok']);
+            exit;
+        }
+        if (isset($result['redirect'])) {
+            header('Location: index.php?carpeta=' . urlencode($result['redirect']));
+            exit;
+        }
+    }
+
     header('Location: index.php?carpeta=' . urlencode($carpetaRelativa));
     exit;
 }
 
-/* ---------- Listado de elementos ----------
-    (sólo HTML a partir de aquí) */
-$orden = $_GET['orden'] ?? 'nombre';
-$dir   = $_GET['dir'] ?? 'asc'; // asc o desc
+
+
+// =================================================================================
+// =========== INICIO DE LA MODIFICACIÓN PARA EL ORDEN PERSONALIZADO ===============
+// =================================================================================
+
+// ---------- ORDEN PERSONALIZADO PARA LA RAÍZ ----------
+// Define el orden estético deseado para la carpeta de inicio.
+$ordenPersonalizado = [
+    '.papelera_creawebes',
+    'usuarios',
+    'Creawebes',
+    'NoticiasDigitales',
+    'Whatsappmasivo'
+];
+// --------------------------------------------------------
+
+// Primero, obtenemos la lista de archivos y carpetas como antes.
 $items = array_filter(scandir($rutaActual), function($i) use ($rutaActual, $root) {
     if ($i === '.' || $i === '..') return false;
+    // Ocultar la papelera si no estamos en la raíz
     if ($i === '.papelera_creawebes' && $rutaActual !== $root) return false;
     return true;
 });
 
-usort($items, function ($a, $b) use ($rutaActual, $orden, $dir) {
-    $pa = $rutaActual . '/' . $a;
-    $pb = $rutaActual . '/' . $b;
+// Ahora, aplicamos la lógica de ordenación condicional.
+if (trim($carpetaRelativa) === '' && !isset($_GET['orden'])) {
+// CASO 1: Estamos en la raíz Y NO se ha seleccionado un orden. Usamos el orden personalizado.
+    usort($items, function ($a, $b) use ($ordenPersonalizado) {
+        $posA = array_search($a, $ordenPersonalizado);
+        $posB = array_search($b, $ordenPersonalizado);
 
-    $esDirA = is_dir($pa);
-    $esDirB = is_dir($pb);
+        // Si ambos ítems están en la lista personalizada, los ordenamos según su posición en ella.
+        if ($posA !== false && $posB !== false) {
+            return $posA <=> $posB;
+        }
+        // Si solo A está en la lista, va primero.
+        if ($posA !== false) {
+            return -1;
+        }
+        // Si solo B está en la lista, va primero.
+        if ($posB !== false) {
+            return 1;
+        }
+        // Si ninguno está en la lista, los ordenamos alfabéticamente al final.
+        return strcasecmp($a, $b);
+    });
 
-    // Carpetas primero
-    if ($esDirA && !$esDirB) return -1;
-    if (!$esDirA && $esDirB) return 1;
+} else {
+    // CASO 2: Estamos en otra carpeta O SÍ se seleccionó un orden. Usamos la lógica normal.
+    $orden = $_GET['orden'] ?? 'nombre';
+    $dir   = $_GET['dir'] ?? 'asc';
 
-    // Comparación según orden
-    switch ($orden) {
-        case 'fecha':
-            $res = filemtime($pa) <=> filemtime($pb);
-            break;
-        case 'tipo':
-            $extA = strtolower(pathinfo($a, PATHINFO_EXTENSION));
-            $extB = strtolower(pathinfo($b, PATHINFO_EXTENSION));
-            $res = $extA <=> $extB;
-            if ($res === 0) $res = strcasecmp($a, $b);
-            break;
-        case 'nombre':
-        default:
-            $res = strcasecmp($a, $b);
-    }
+    usort($items, function ($a, $b) use ($rutaActual, $orden, $dir) {
+        $pa = $rutaActual . '/' . $a;
+        $pb = $rutaActual . '/' . $b;
+        $esDirA = is_dir($pa);
+        $esDirB = is_dir($pb);
 
-    return $dir === 'desc' ? -$res : $res;
-});
+        // Siempre mostrar carpetas primero
+        if ($esDirA && !$esDirB) return -1;
+        if (!$esDirA && $esDirB) return 1;
 
+        // Lógica de ordenación por columna
+        switch ($orden) {
+            case 'fecha': $res = filemtime($pa) <=> filemtime($pb); break;
+            case 'tipo':
+                $extA = strtolower(pathinfo($a, PATHINFO_EXTENSION));
+                $extB = strtolower(pathinfo($b, PATHINFO_EXTENSION));
+                $res = $extA <=> $extB;
+                if ($res === 0) $res = strcasecmp($a, $b);
+                break;
+            case 'nombre':
+            default:
+                $res = strcasecmp($a, $b);
+        }
+        return $dir === 'desc' ? -$res : $res;
+    });
+}
+// =================================================================================
+// ================ FIN DE LA MODIFICACIÓN PARA EL ORDEN PERSONALIZADO ===============
+// =================================================================================
 ?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Explorador – <?= htmlspecialchars($carpetaRelativa ?: 'Inicio') ?></title>
 <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet">
-<style>
-    body{font-family:'Lato',sans-serif;background:#e3f2fd;margin:0;padding:3rem;color:#222}
-    .titulo-principal{text-align:center;font-size:4rem;margin-bottom:1rem;color:#3949ab}
-    .explorador {
-        max-width: 1100px;
-        background: #fff;
-        border: 1px solid #ccc;
-        padding: 3rem;
-        border-radius: 1.5rem;
-        margin: auto;
-        box-shadow: 0 0 25px rgba(0, 0, 0, .06);
-    }
-    .volver {
-    margin-top: 2rem;
-    font-size: 1rem;
-    }
-    .volver a {
-    color: #3949ab;
-    text-decoration: none;
-    font-weight: bold;
-    }
-    .breadcrumb{margin-bottom:1rem;font-size:.95rem;color:#555}
-    .breadcrumb a{color:#3949ab;text-decoration:none}
-    .error{background:#ffdede;color:#b20000;padding:.8rem;border-radius:.5rem;margin-bottom:1rem}
-    .acciones-top{margin:1.5rem 0}
-    ul{list-style:none;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:1rem}
-    li{background:#f0f4ff;padding:.8rem 1rem;border-radius:.5rem;min-width:240px;position:relative;cursor:context-menu}
-    li img.preview{display:none;position:absolute;max-width:200px;top:2.5rem;left:0;box-shadow:0 0 10px rgba(0,0,0,.2);border-radius:.3rem;z-index:999}
-    li:hover img.preview{display:block}
-    .menu{position:absolute;z-index:999;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 0 10px rgba(0,0,0,.1);display:none}
-    .menu button{display:block;background:none;border:none;padding:.3rem 1rem;width:100%;text-align:left;cursor:pointer}
-    .menu button:hover{background:#eee}
-    .btn-top{margin:.3rem 0;background:#3949ab;color:#fff;border:none;padding:.5rem 1rem;border-radius:.4rem;cursor:pointer}
-    .modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:#0008;justify-content:center;align-items:center}
-    .modal-content{background:white;padding:2rem;border-radius:10px;width:90%;max-width:500px}
-    .footer{text-align:center;padding:2rem;color:#888;font-size:0.9rem}
-
-#btnAlfred {
-    position: fixed;
-    bottom: 100px;
-    right: 2rem;
-    background-color: #3949ab;
-    color: white;
-    font-size: 0.9rem;
-    font-weight: 600;
-    padding: 0.5rem 1rem;
-    border-radius: 999px;
-    text-decoration: none;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-    z-index: 999;
-    transition: background-color 0.3s;
-}
-#btnAlfred:hover {
-    background-color: #303f9f;
-}
-li.seleccionado {
-    background: #dbeafe;
-    border: 2px solid #3949ab;
-}
-</style>
+<link rel="stylesheet" href="assets/panel.css?v=<?= time() ?>">
 </head>
 <body>
+<?php
+$archivoActividad = __DIR__ . '/actividad_usuarios.json';
+$actividad = file_exists($archivoActividad) ? json_decode(file_get_contents($archivoActividad), true) : [];
+$usuariosConectados = [];
+$ahora = time();
+$maxInactividad = 120; // segundos
+foreach ($actividad as $usuario => $datos) {
+    if (!isset($datos['ultima_conexion'])) continue;
+    $tsConexion = strtotime($datos['ultima_conexion']);
+    $tsDesconexion = isset($datos['ultima_desconexion']) ? strtotime($datos['ultima_desconexion']) : 0;
+    if ($tsConexion > $tsDesconexion && ($ahora - $tsConexion) < $maxInactividad) {
+        $usuariosConectados[$usuario] = $datos;
+    }
+}
+?>
 
-
-<div style="text-align:right; margin-top:-3rem; margin-bottom:2rem;">
-    <a href="logout.php" style="color:#3949ab; font-weight:bold; text-decoration:none;">🔓 Cerrar sesión</a>
+<div class="logout-link-container" style="max-width: 1200px; margin: auto; text-align:right; margin-bottom:1rem;">
+    <span style="margin-right:1rem; font-weight:bold; color:var(--color-texto);">
+        👤 Usuario: <?= htmlspecialchars($_SESSION['usuario'] ?? 'Invitado') ?>
+    </span>
+    <a href="logout.php" onclick="sessionStorage.removeItem('sistemaVisible');"
+       style="color:var(--color-primario); font-weight:bold; text-decoration:none;">
+       🔓 Cerrar sesión
+    </a>
 </div>
-<div class="explorador">
-    <h1>📁 Explorador de Archivos</h1>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet">
 
-    <div class="breadcrumb"><?= breadcrumb($carpetaRelativa) ?></div>
+<!-- Banner visual -->
 
-    <?php if ($error === 'existe'): ?>
-        <div class="error">❌ Ya existe un archivo o carpeta con ese nombre.</div>
-    <?php endif; ?>
-    <?php if ($error === 'ruta_invalida'): ?>
-        <div class="error">❌ Error: Ruta no válida o fuera del alcance permitido.</div>
-    <?php endif; ?>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet">
 
-    <?php if ($error === 'clave'): ?>
-        <div class="error">❌ Contraseña incorrecta.</div>
-    <?php endif; ?>
+<!-- Banner visual con degradado azul -->
+<div style="
+    font-family: 'Lato', sans-serif;
+    background: linear-gradient(90deg, #1e3c72, #2a5298);
+    color: white;
+    text-align: center;
+    padding: 30px 20px;
+    border-bottom: 1px solid #ccc;
+">
+  <h1 style="margin: 0; font-size: 36px; font-weight: 700;">Creawebes</h1>
+  <p style="margin: 8px 0 0; font-size: 16px; font-weight: 400;">
+    Plataforma profesional de gestión de archivos
+  </p>
+</div>
+<div style="height: 20px;"></div>
 
-    <?php if (isset($_GET['ok']) && $_GET['ok'] === 'papelera_vaciada'): ?>
-        <div style="background:#e8f5e9;color:#2e7d32;padding:.8rem;border-radius:.5rem;margin-bottom:1rem;">
-            ✅ Papelera vaciada correctamente.
+
+
+
+    <?php if ($error === 'existe'): ?><div class="error">❌ Ya existe un archivo o carpeta con ese nombre.</div><?php endif; ?>
+    <?php if ($error === 'ruta_invalida'): ?><div class="error">❌ Error: Ruta no válida o fuera del alcance permitido.</div><?php endif; ?>
+    <?php if ($error === 'clave'): ?><div class="error">❌ Contraseña incorrecta.</div><?php endif; ?>
+    <?php if ($error === 'protegido_index'): ?><div class="error">🚫 El archivo root/index.php está protegido contra esta acción. Active el "Override temporal" si es necesario.</div><?php endif; ?>
+    <?php if (isset($_GET['ok']) && $_GET['ok'] === 'papelera_vaciada'): ?><div style="background:#e8f5e9;color:#2e7d32;padding:.8rem;border-radius:.5rem;margin-bottom:1rem;">✅ Papelera vaciada correctamente.</div><?php endif; ?>
+    <?php if ($error === 'protegido'): ?><div class="error">🚫 Acción no permitida sobre carpeta protegida.</div><?php endif; ?>
+
+    <!-- ========================================================= -->
+    <!-- ✅ INICIO: ESTRUCTURA DE ACCIONES REORGANIZADA         -->
+    <!-- ========================================================= -->
+    <div class="panel-acciones">
+        <div class="acciones-principales">
+            <button class="btn-top" onclick="crearCarpeta()">📁 Nueva carpeta</button>
+            <button class="btn-top" onclick="mostrarSubida()">📤 Subir archivo</button>
+            <button class="btn-top" onclick="window.open('CrearNuevo%20Archivo.php?carpeta=<?= urlencode($carpetaRelativa) ?>', '_blank')">📝 Crear documento</button>
         </div>
-    <?php endif; ?>
-
-    <div class="acciones-top">
-        <button class="btn-top" onclick="crearCarpeta()">📁 Nueva carpeta</button>
-        <button class="btn-top" onclick="mostrarSubida()">📤 Subir archivo</button>
-        <button class="btn-top" onclick="window.open('https://contenido.creawebes.com/CrearNuevo%20Archivo.php?carpeta=<?= urlencode($carpetaRelativa) ?>', '_blank')">📝 Crear documento</button>
-        <button class="btn-top" onclick="window.open('https://script.google.com/macros/s/AKfycbwUfLvcB_o9k3fMW52Iz984UoFN6TYc0K9ntPpq1_MbA-Drvj_MOn4ur0-6aDkfu_x8/exec', '_blank')">📅 Agenda</button>
-        <button class="btn-top" onclick="abrirWhatsapp()">💬 WhatsApp Web</button>
-        <form action="buscar.php" method="get" style="margin: 2rem 0 1rem 0;">
-            <input type="text" name="q" id="buscador" placeholder="🔍 Buscar archivo o carpeta..." style="width: 100%; padding: 0.6rem; border-radius: 6px; border: 1px solid #ccc;">
-        </form>
-        <div id="resultadosBusqueda" style="margin-top: 2rem;"></div>
-    </div>
-
-    <div id="subida" style="display:none;margin:1rem 0;">
-        <form method="POST" enctype="multipart/form-data">
-            <input type="file" name="archivo" required style="margin-right:1rem;">
-            <button type="submit">⬆️ Subir</button>
-        </form>
-    </div>
-
-    <div class="acciones-top" style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; margin-bottom: 1.5rem;">
-        <div style="position: relative;">
-            <button class="btn-top" onclick="toggleMenuOrden()">Ordenar ▾</button>
-            <div id="menuOrden" style="display:none;position:absolute;background:#f9f9f9;border:1px solid #ddd;padding:.3rem .8rem;border-radius:.3rem;box-shadow:none;z-index:1000;">
-                <?php
-                    $orden = $_GET['orden'] ?? 'nombre';
-                    $dir   = $_GET['dir'] ?? 'asc';
-                    $base  = 'index.php?carpeta=' . urlencode($carpetaRelativa);
-
-                    function linkOrden($nombre, $campo, $dir, $actualOrden, $actualDir, $base) {
-                        $activo = ($campo === $actualOrden && $dir === $actualDir) ? 'font-weight:bold;color:#3949ab;' : 'color:#333;';
-                        $url = "$base&orden=$campo&dir=$dir";
-                        return "<div style='margin: .2rem 0;'><a href=\"$url\" style=\"$activo text-decoration:none; display:block; padding:.2rem 0; font-size: 0.95rem; font-family: Lato, sans-serif;\">$nombre</a></div>";
-                    }
-
-                    echo linkOrden('Nombre (A-Z)', 'nombre', 'asc', $orden, $dir, $base);
-                    echo linkOrden('Nombre (Z-A)', 'nombre', 'desc', $orden, $dir, $base);
-                    echo linkOrden('Tipo (A-Z)', 'tipo', 'asc', $orden, 'desc', $base);
-                    echo linkOrden('Tipo (Z-A)', 'tipo', 'desc', $orden, $dir, $base);
-                    echo linkOrden('Fecha (recientes primero)', 'fecha', 'desc', $orden, $dir, $base);
-                    echo linkOrden('Fecha (más antiguas)', 'fecha', 'asc', $orden, $dir, $base);
-                ?>
-            </div>
-        </div>
-
-        <form id="backupForm" method="POST" action="backup.php">
-            <input type="hidden" name="accion" value="backup">
-            <button class="btn-top" type="submit" onclick="return confirm('¿Crear copia de seguridad?')">
-                ♻️ Copia de seguridad
-            </button>
-        </form>
-
-        <form method="GET" action="restaurar.php" style="display:inline;">
-            <button class="btn-top" type="submit" onclick="return confirm('¿Ir a restaurar una copia?')">
-                🔄 Restaurar copia
-            </button>
-        </form>
-
-        <?php if ($carpetaRelativa === '.papelera_creawebes'): ?>
-            <form method="post" style="margin: 1rem 0;"
-                  onsubmit="return confirm('¿Vaciar la papelera permanentemente?')">
-                <input type="hidden" name="accion" value="vaciar_papelera">
-                
-                <div style="display:inline-flex; align-items:center; gap:.5rem;">
-                    <input type="password" name="clave" id="claveInput" placeholder="Contraseña" required
-                           style="padding:.3rem;">
-                    <button type="button"
-                            onclick="document.getElementById('claveInput').type = 
-                                    document.getElementById('claveInput').type === 'password' ? 'text' : 'password'"
-                            style="padding:.3rem; background:#eee; border:1px solid #ccc; border-radius:4px; cursor:pointer;">
-                        👁️ Mostrar/Ocultar
-                    </button>
-                </div>
-
-                <button type="submit"
-                        style="background:#d32f2f;color:white;padding:.5rem 1rem;border:none;border-radius:5px;cursor:pointer;margin-top:.8rem;">
-                    🧹 Vaciar papelera
-                </button>
-            </form>
-        <?php endif; ?>
-    </div>
-
-    <ul class="explorador">
-    <?php foreach ($items as $item):
-        $rutaCompleta = $rutaActual . '/' . $item;
-        $relativa       = obtenerRutaRelativa($root, $rutaCompleta);
-        $dir            = is_dir($rutaCompleta);
-        $esImagen       = !$dir && preg_match('/\.(jpe?g|png|gif|webp)$/i', $item);
-    ?>
-        <li class="<?= $dir ? 'carpeta' : 'archivo' ?>"
-            data-nombre="<?= htmlspecialchars($relativa) ?>"
-            title="<?= htmlspecialchars($relativa) ?>"
-            onclick="seleccionarItem(this, event)">
-            <?= $dir && strpos($relativa, '.papelera_creawebes') === 0 ? '🗑️' : ($dir ? '📁' : iconoArchivo($item)) ?>
-
-            <?php if ($dir): ?>
-                <a href="index.php?carpeta=<?= urlencode($relativa) ?>"><?= htmlspecialchars($item) ?></a>
-            <?php else: ?>
-                <a href="<?= htmlspecialchars($relativa) ?>" target="_blank"><?= htmlspecialchars($item) ?></a>
-            <?php endif; ?>
-            <?php if ($esImagen): ?>
-                <img src="<?= htmlspecialchars($relativa) ?>" class="preview">
-            <?php endif; ?>
-        </li>
-    <?php endforeach; ?>
-    </ul>
-
-    <?php if ($carpetaRelativa):
-        $padre = dirname($carpetaRelativa);
-        $back  = $padre === '.' ? '' : '?carpeta=' . urlencode($padre);
-    ?>
-        <div class="volver">
-            <a href="index.php<?= $back ?>">⬅️ Volver</a>
-        </div>
-    <?php endif; ?>
-
-    <footer class="footer">
-        &copy; <?= date('Y') ?> Creawebes. Todos los derechos reservados.
-    </footer>
-
-    <div id="menu" class="menu"></div>
-
-    <div id="modalMover" class="modal">
-        <div class="modal-content">
-            <h2>📂 Mover elemento(s)</h2>
-            <form method="POST" id="formMover">
-                <input type="hidden" name="accion" value="" id="accionMover">
-                <input type="hidden" name="archivo" value="" id="moverArchivo">
-                <input type="hidden" name="archivos_json" id="moverArchivosJson">
-                <label>Destino:</label>
-                <select name="destino" id="selectDestino" style="width:100%;margin:1rem 0;"></select>
-                <button class="btn-top" type="submit">✅ Mover</button>
-                <button class="btn-top" type="button" onclick="document.getElementById('modalMover').style.display='none'">❌ Cancelar</button>
-            </form>
-        </div>
-    </div>
-
-    <?php if ($error === 'conflicto' && isset($_GET['archivo'], $_GET['destino'])): ?>
-    <div class="modal" style="display:flex;">
-        <div class="modal-content">
-            <h2>⚠️ El elemento ya existe</h2>
-            <p>
-                <strong><?= htmlspecialchars(basename($_GET['archivo'])) ?></strong>
-                ya existe en
-                <strong><?= $_GET['destino'] !== '' ? htmlspecialchars($_GET['destino']) : 'Inicio' ?></strong>.
-            </p>
-            <p>¿Deseas reemplazarlo?</p>
-            <form method="POST" style="text-align:center;">
-                <input type="hidden" name="accion"  value="mover">
-                <input type="hidden" name="archivo" value="<?= htmlspecialchars($_GET['archivo']) ?>">
-                <input type="hidden" name="destino" value="<?= htmlspecialchars($_GET['destino']) ?>">
-                <input type="hidden" name="forzar"  value="1">
-                <button class="btn-top" type="submit">✅ Sí, reemplazar</button>
-                <a class="btn-top" href="index.php?carpeta=<?= urlencode($carpetaRelativa) ?>">❌ Cancelar</a>
-            </form>
-        </div>
-    </div>
-    <?php endif; ?>
-
-    <?php if ($error === 'conflicto_multiple' && isset($_GET['archivos'], $_GET['destino'])): ?>
-        <div class="modal" style="display:flex;">
-            <div class="modal-content">
-                <h2>⚠️ Algunos elementos ya existen</h2>
-                <p>Uno o más elementos ya existen en la carpeta <strong><?= htmlspecialchars($_GET['destino']) ?: 'Inicio' ?></strong>.</p>
-                <ul style="text-align:left;margin:1rem auto 1rem auto;max-height:180px;overflow:auto;padding:0 1rem;">
-                    <?php
-                        $lista = json_decode($_GET['archivos'] ?? '[]', true);
-                        foreach ($lista as $nombre) {
-                            echo '<li>📄 ' . htmlspecialchars(basename($nombre)) . '</li>';
-                        }
-                    ?>
-                </ul>
-                <p style="margin-top:1rem;">¿Deseas reemplazarlos?</p>
-                <form method="POST" action="index.php" style="text-align:center;">
-                    <input type="hidden" name="accion" value="mover_multiple">
-                    <input type="hidden" name="destino" value="<?= htmlspecialchars($_GET['destino']) ?>">
-                    <input type="hidden" name="forzar" value="1">
-                    <input type="hidden" name="archivos_json" value='<?= htmlspecialchars($_GET['archivos']) ?>'>
-                    <button type="submit" class="btn-top">✅ Sí, reemplazar</button>
-                    <a class="btn-top" href="index.php?carpeta=<?= urlencode($carpetaRelativa) ?>">❌ Cancelar</a>
+ 
+        <div class="acciones-secundarias">
+            <div class="grupo-busqueda">
+                <span>🔍</span>
+                <form onsubmit="return false;" style="margin: 0;">
+                    <input type="text" name="q" id="buscador" placeholder="Buscar...">
                 </form>
             </div>
+
+            <div style="position: relative;">
+                <button class="btn-top" onclick="toggleMenuOrden()">Ordenar ▾</button>
+                <div id="menuOrden" style="display:none;position:absolute;right:0;top:calc(100% + 5px);background:#fff;border:1px solid #ddd;padding:.5rem 1rem;border-radius:.5rem;box-shadow:var(--sombra-caja);z-index:1000;min-width: 220px;">
+                    <?php
+                        $orden_actual = $_GET['orden'] ?? 'nombre';
+                        $dir_actual   = $_GET['dir'] ?? 'asc';
+                        $base  = 'index.php?carpeta=' . urlencode($carpetaRelativa);
+                        function linkOrden($nombre, $campo, $dir, $actualOrden, $actualDir, $base) {
+                            $activo = ($campo === $actualOrden && $dir === $actualDir) ? 'font-weight:bold;color:var(--color-primario);' : 'color:#333;';
+                            $url = "$base&orden=$campo&dir=$dir";
+                            return "<div style='margin: .2rem 0;'><a href=\"$url\" style=\"$activo text-decoration:none; display:block; padding:.2rem 0; font-size: 0.95rem; font-family: Lato, sans-serif;\">$nombre</a></div>";
+                        }
+                        echo linkOrden('Nombre (A-Z)', 'nombre', 'asc', $orden_actual, $dir_actual, $base);
+                        echo linkOrden('Nombre (Z-A)', 'nombre', 'desc', $orden_actual, $dir_actual, $base);
+                        echo linkOrden('Tipo (A-Z)', 'tipo', 'asc', $orden_actual, $dir_actual, $base);
+                        echo linkOrden('Tipo (Z-A)', 'tipo', 'desc', $orden_actual, $dir_actual, $base);
+                        echo linkOrden('Fecha (recientes primero)', 'fecha', 'desc', $orden_actual, $dir_actual, $base);
+                        echo linkOrden('Fecha (más antiguas)', 'fecha', 'asc', $orden_actual, $dir_actual, $base);
+                    ?>
+                </div>
+            </div>
+
+                      <div class="herramientas-dropdown">
+                <button class="btn-top" onclick="toggleHerramientas()">🛠️ Herramientas ▾</button>
+                <div id="herramientasContenido" class="herramientas-contenido">
+                    
+                    <?php if ($esAdmin): ?>
+                        <form id="backupForm" method="POST" action="backup.php">
+                            <input type="hidden" name="accion" value="backup">
+                            <button class="dropdown-item" type="submit" onclick="return confirm('¿Crear copia de seguridad?')">♻️ Copia de seguridad</button>
+                        </form>
+                         <form method="GET" action="restaurar.php">
+                            <button class="dropdown-item" type="submit" onclick="return confirm('¿Ir a restaurar una copia?')">🔄 Restaurar copia</button>
+                        </form>
+                    <?php endif; ?>
+
+                    <button class="dropdown-item" onclick="window.open('https://script.google.com/macros/s/AKfycbwUfLvcB_o9k3fMW52Iz984UoFN6TYc0K9ntPpq1_MbA-Drvj_MOn4ur0-6aDkfu_x8/exec', '_blank')">📅 Agenda</button>
+                    <button class="dropdown-item" onclick="abrirVentanaConectados()" id="botonConectados">🟢 Conectados (<?= count($usuariosConectados) ?>)</button>
+                    <button class="dropdown-item" onclick="abrirVideollamadaGeneral()">📹 Videollamada general</button>
+                    
+                    <?php if ($esAdmin): ?>
+                        <?php if ($carpetaRelativa === '' || $carpetaRelativa === '.'): ?>
+                            <button class="dropdown-item" type="button" onclick="alternarSistema()" id="botonSistema">🔐 Archivo de sistema</button>
+                        <?php endif; ?>
+                       <button class="dropdown-item" type="button" onclick="window.open('gestionar_usuarios.php', '_blank')">👥 Gestión de usuarios</button>
+                   <?php endif; ?>
+                </div>
+            </div>
         </div>
+            </div>
+    <!-- ========================================================= -->
+    <!-- ✅ FIN: ESTRUCTURA DE ACCIONES REORGANIZADA            -->
+    <!-- ========================================================= -->
+
+    <div id="resultadosBusqueda"></div>
+
+    <div id="subida" style="display:none;margin:1rem 0; padding: 1.5rem; background: #f0f4ff; border-radius: .5rem;">
+        <form method="POST" enctype="multipart/form-data">
+            <input type="file" name="archivo" required style="margin-right:1rem;">
+            <button type="submit" class="btn-top">⬆️ Subir</button>
+        </form>
+    </div>
+
+    <?php if ($carpetaRelativa === '.papelera_creawebes'): ?>
+        <form method="post" style="margin: 1rem 0; background: #fff3e0; padding: 1rem; border-radius: .5rem;" onsubmit="return confirm('¿Vaciar la papelera permanentemente?')">
+            <input type="hidden" name="accion" value="vaciar_papelera">
+            <div style="display:inline-flex; align-items:center; gap:.5rem;">
+                <label for="claveInput" style="font-weight:bold;">Para vaciar, introduce la contraseña:</label>
+                <input type="password" name="clave" id="claveInput" placeholder="Contraseña" required style="padding:.5rem; border: 1px solid var(--color-borde); border-radius: 4px;">
+                <button type="button" onclick="document.getElementById('claveInput').type = document.getElementById('claveInput').type === 'password' ? 'text' : 'password'" style="padding:.4rem .6rem; background:#eee; border:1px solid #ccc; border-radius:4px; cursor:pointer; font-size: 1.2rem; line-height: 1;">👁️</button>
+            </div>
+            <button type="submit" style="background:#d32f2f;color:white;padding:.5rem 1rem;border:none;border-radius:5px;cursor:pointer;margin-left:1rem; font-weight: bold;">🧹 Vaciar papelera</button>
+        </form>
     <?php endif; ?>
 
-    <script>
-    let current = ''; // Usado para operaciones individuales
-    let seleccionados = new Set(); // Almacena las rutas relativas de los elementos seleccionados
+    <ul class="explorador">
+<?php foreach ($items as $item):
+    $rutaCompleta = $rutaActual . '/' . $item;
+    $relativa     = obtenerRutaRelativa($root, $rutaCompleta);
+    $dir          = is_dir($rutaCompleta);
+    $clasesCss    = $dir ? 'carpeta' : 'archivo';
+    $estiloCss    = '';
 
-   document.querySelectorAll('.archivo,.carpeta').forEach(el => {
-    el.addEventListener('contextmenu', e => {
-        e.preventDefault();
-
-        const nombre = el.dataset.nombre;
-
-        // Si no está seleccionado, limpiar y seleccionar solo este
-        if (!el.classList.contains('seleccionado')) {
-            document.querySelectorAll('li.seleccionado').forEach(e => e.classList.remove('seleccionado'));
-            seleccionados.clear();
-            el.classList.add('seleccionado');
-            seleccionados.add(nombre);
-        }
-
-        current = nombre; // Establecer el elemento sobre el que se hizo clic derecho
-
-        const isDir = el.classList.contains('carpeta');
-        const m = document.getElementById('menu');
-        m.innerHTML = ''; // Limpiar menú
-
-        // Mostrar opciones según si hay uno o varios seleccionados
-        if (seleccionados.size > 1) {
-            m.innerHTML += '<button onclick="eliminarSeleccionados()">🗑️ Eliminar seleccionados</button>';
-            m.innerHTML += '<button onclick="moverSeleccionados()">📂 Mover seleccionados</button>';
-
-            <?php if ($carpetaRelativa === '.papelera_creawebes'): ?>
-            m.innerHTML += '<button onclick="restaurarSeleccionados()">♻️ Restaurar seleccionados</button>';
-            <?php endif; ?>
-
+    // ### MODIFICADO ### Lógica de visibilidad mejorada
+    $esVisible = true;
+    if ($carpetaRelativa === 'usuarios') {
+        // Dentro de /usuarios, por defecto no se muestra nada
+        $esVisible = false;
+        if ($esAdmin) {
+            $esVisible = true; // El admin ve todo
         } else {
-            if (!isDir && (nombre.endsWith('.php') || nombre.endsWith('.html') || nombre.endsWith('.js') || nombre.endsWith('.css') || nombre.endsWith('.txt'))) {
-                m.innerHTML += '<button onclick="editarArchivo()">✍️ Editar código</button>';
-            } else if (!isDir) {
-                m.innerHTML += '<button onclick="alert(\'Solo se pueden editar archivos PHP, HTML, JS, CSS o TXT.\')">✍️ Editar</button>';
+            // Un usuario normal ve su propia carpeta y las compartidas con él
+            if ($item === $nombreCarpetaUsuarioLogueado || in_array($item, $compartidasConmigo)) {
+                $esVisible = true;
             }
-            m.innerHTML += '<button onclick="renombrarItem()">✏️ Renombrar</button>';
-            m.innerHTML += '<button onclick="eliminarItem()">🗑️ Eliminar</button>';
-            m.innerHTML += '<button onclick="duplicarItem()">📄 Duplicar</button>';
-            m.innerHTML += '<button onclick="descargarArchivo()">📥 Descargar</button>';
-            m.innerHTML += '<button onclick="moverArchivoIndividual()">📂 Mover</button>';
-
-            <?php if ($carpetaRelativa === '.papelera_creawebes'): ?>
-            m.innerHTML += '<button onclick="restaurarItem()">♻️ Restaurar</button>';
-            <?php endif; ?>
         }
+    }
 
-        m.style.display = 'block';
-        m.style.left = e.pageX + 'px';
-        m.style.top  = e.pageY + 'px';
-    });
-});
+    if ($carpetaRelativa === '' && $item === 'usuarios') {
+        if (!$esAdmin && empty($nombreCarpetaUsuarioLogueado)) $esVisible = false; // Ocultar /usuarios si no eres admin y no tienes carpeta
+    }
+    
+    // Si la lógica anterior decide que no es visible, saltamos el item
+    if (!$esVisible) continue;
+    
+    // 💠 Color especial para la carpeta "usuarios" en raíz
+    if ($carpetaRelativa === '' && $item === 'usuarios' && is_dir($rutaCompleta)) {
+        $estiloCss = 'background-color: #e3f2fd; font-weight: bold;';
+    }
 
-    function seleccionarItem(el, evento) {
-        const nombre = el.dataset.nombre;
-
-        if (evento.ctrlKey) { // Si se presiona Ctrl, permite seleccionar/deseleccionar múltiples
-            el.classList.toggle('seleccionado');
-            if (el.classList.contains('seleccionado')) {
-                seleccionados.add(nombre);
-            } else {
-                seleccionados.delete(nombre);
+      // 🛠️ Archivos del sistema: ocultar y opcionalmente marcar
+    // Se ocultan solo si están en la raíz y son parte de $archivosSistema
+    if (in_array($item, $archivosSistema)) {
+        $clasesCss .= ' archivo-sistema'; // Siempre añadir la clase para que el botón "Archivo de sistema" funcione en JS
+        
+        // Solo ocultar y marcar con color si está en la carpeta raíz (vacía o '.')
+        if ($carpetaRelativa === '' || $carpetaRelativa === '.') {
+            $estiloCss .= 'display:none;';
+            // No aplicar color de fondo a estos dos archivos específicos si se muestran
+            // ya que son generalmente públicos y no necesitan ser "marcados" visualmente
+            // al estar ocultos.
+            if ($item !== 'sitemap.xml' && $item !== 'google66cdb90433076f9f.html') {
+                $estiloCss .= ' background-color: #fff5cc;';
             }
-        } else { // Si no se mantiene Ctrl, deselecciona todo excepto el actual
-            document.querySelectorAll('li.seleccionado').forEach(e => e.classList.remove('seleccionado'));
-            seleccionados.clear();
-            el.classList.add('seleccionado');
-            seleccionados.add(nombre);
         }
-        evento.stopPropagation(); // Evitar que el clic en el elemento cierre el menú contextual
+        // Si no está en la raíz, no se añade 'display:none' al $estiloCss, por lo que será visible.
+        // Tampoco se le aplicará el color de fondo específico de "archivo de sistema oculto".
     }
-
-    document.addEventListener('click', () => {
-        // Ocultar menú contextual y deseleccionar todo al hacer clic fuera
-        document.getElementById('menu').style.display = 'none';
-        // if (!event.ctrlKey) { // Deseleccionar solo si no se mantiene Ctrl
-        //     document.querySelectorAll('li.seleccionado').forEach(e => e.classList.remove('seleccionado'));
-        //     seleccionados.clear();
-        // }
-    });
-
-
-    // --- Funciones para acciones individuales (usando el "current" item) ---
-    function enviarFormularioAccion(accion, valorAdicional = {}) {
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = 'index.php';
-
-        const accionInput = document.createElement('input');
-        accionInput.type = 'hidden';
-        accionInput.name = 'accion';
-        accionInput.value = accion;
-        form.appendChild(accionInput);
-
-        const archivoInput = document.createElement('input');
-        archivoInput.type = 'hidden';
-        archivoInput.name = 'archivo';
-        archivoInput.value = current; // El elemento sobre el que se hizo clic derecho (ruta relativa completa)
-        form.appendChild(archivoInput);
-
-        for (const key in valorAdicional) {
-            const input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = key;
-            input.value = valorAdicional[key];
-            form.appendChild(input);
+?>
+    <li class="<?= $clasesCss ?>" style="<?= $estiloCss ?>" data-nombre="<?= htmlspecialchars($relativa) ?>" title="<?= htmlspecialchars($item) ?>">
+        <span style="font-size: 1.2rem;">
+        <?php
+        if ($dir && $item === 'usuarios') echo '👥';
+        elseif ($dir && $carpetaRelativa === 'usuarios') echo '👤';
+        elseif ($dir && $item === '.papelera_creawebes') echo '🗑️';
+        elseif ($dir) { // ### MODIFICADO ### Lógica para el icono de compartir
+            echo '📁'; // Icono base de carpeta
+            $esCompartida = false;
+            // Condición 1: La carpeta es mía y la estoy compartiendo con alguien
+            if (isset($infoCompartidos[$relativa])) {
+                $esCompartida = true;
+            }
+            // Condición 2: Es una carpeta de otro usuario compartida conmigo (solo visible en /usuarios)
+            if ($carpetaRelativa === 'usuarios' && in_array($item, $compartidasConmigo)) {
+                $esCompartida = true;
+            }
+            
+            if ($esCompartida) {
+                echo '<span title="Carpeta compartida" style="color: var(--color-primario); margin-left: 5px;">🔗</span>';
+            }
         }
+        else echo iconoArchivo($item);
+        ?>
+        </span>
 
-        document.body.appendChild(form);
-        form.submit();
-    }
+        <?php if ($dir): ?>
+            <a href="index.php?carpeta=<?= urlencode($relativa) ?>"><?= htmlspecialchars($item) ?></a>
+        <?php else: ?>
+            <a href="<?= htmlspecialchars($relativa) ?>" target="_blank"><?= htmlspecialchars($item) ?></a>
+        <?php endif; ?>
+    </li>
+<?php endforeach; ?>
+</ul>
 
-    function renombrarItem() {
-        const n = prompt('Nuevo nombre para ' + current + ':');
-        if (!n) return;
-        enviarFormularioAccion('renombrar', { 'nuevo_nombre': n });
-    }
+    <?php if ($carpetaRelativa && $carpetaRelativa !== '.'): $padre = dirname($carpetaRelativa); $back  = $padre === '.' ? '' : '?carpeta=' . urlencode($padre); ?>
+        <div class="volver"><a href="index.php<?= $back ?>">⬅️ Volver</a></div>
+    <?php endif; ?>
 
-    function eliminarItem() {
-        if (!confirm('¿Estás seguro de eliminar ' + current + '?')) return;
-        enviarFormularioAccion('eliminar');
-    }
+    <footer class="footer">© <?= date('Y') ?> Creawebes. Todos los derechos reservados.</footer>
 
-    function duplicarItem() {
-        enviarFormularioAccion('duplicar');
-    }
+    <div id="menu" class="menu"></div>
+<?php include __DIR__ . '/partials/modales.php'; ?>
+</div>
 
-    function editarArchivo() {
-        const ruta = encodeURIComponent(current);
-        window.location.href = 'editor.php?archivo=' + ruta;
-    }
-
-    function descargarArchivo() {
-        const ruta = encodeURIComponent(current);
-        window.location.href = 'download.php?archivo=' + ruta;
-    }
-
-    function moverArchivoIndividual() {
-        document.getElementById('accionMover').value = 'mover';
-        document.getElementById('moverArchivo').value = current;
-        document.getElementById('moverArchivosJson').value = ''; // Asegurarse de que esté vacío
-
-        fetch('index.php?listar=1&actual=' + encodeURIComponent("<?= $carpetaRelativa ?>"))
-            .then(r => r.json())
-            .then(data => {
-                const sel = document.getElementById('selectDestino');
-                sel.innerHTML = '';
-                data.forEach(c => {
-                    const op = document.createElement('option');
-                    op.value = c;
-                    op.textContent = '📁 ' + (c || 'Inicio');
-                    sel.appendChild(op);
-                });
-                document.getElementById('modalMover').style.display = 'flex';
-            });
-    }
-
-    // --- Funciones para acciones de carpeta / archivos ---
-    function crearCarpeta() {
-        const n = prompt('Nombre de nueva carpeta:');
-        if (!n) return;
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = 'index.php';
-        form.innerHTML = `<input type="hidden" name="accion" value="crear_carpeta">
-                          <input type="hidden" name="nueva_carpeta" value="${encodeURIComponent(n)}">`;
-        document.body.appendChild(form);
-        form.submit();
-    }
-
-    function mostrarSubida() {
-        const s = document.getElementById('subida');
-        s.style.display = s.style.display === 'none' ? 'block' : 'none';
-    }
-
-    // --- Funciones para acciones múltiples ---
-    function eliminarSeleccionados() {
-        if (seleccionados.size === 0) {
-            alert('Por favor, selecciona al menos un elemento para eliminar.');
-            return;
-        }
-        if (!confirm("¿Eliminar los elementos seleccionados permanentemente (si están en la papelera) o moverlos a la papelera?")) return;
-
-        const archivosArray = Array.from(seleccionados); // Convertir Set a Array
-
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = 'index.php';
-
-        const accionInput = document.createElement('input');
-        accionInput.type = 'hidden';
-        accionInput.name = 'accion';
-        accionInput.value = 'eliminar_multiple';
-        form.appendChild(accionInput);
-
-        const archivosJsonInput = document.createElement('input');
-        archivosJsonInput.type = 'hidden';
-        archivosJsonInput.name = 'archivos_json';
-        archivosJsonInput.value = JSON.stringify(archivosArray); // Enviar como JSON string
-        form.appendChild(archivosJsonInput);
-
-        document.body.appendChild(form);
-        form.submit();
-    }
-
-    function moverSeleccionados() {
-        if (seleccionados.size === 0) {
-            alert('Por favor, selecciona al menos un elemento para mover.');
-            return;
-        }
-
-        // Obtener destinos para el modal de mover
-        fetch('index.php?listar=1&actual=' + encodeURIComponent("<?= $carpetaRelativa ?>"))
-            .then(r => r.json())
-            .then(data => {
-                const sel = document.getElementById('selectDestino');
-                sel.innerHTML = '';
-                data.forEach(c => {
-                    const op = document.createElement('option');
-                    op.value = c;
-                    op.textContent = '📁 ' + (c || 'Inicio');
-                    sel.appendChild(op);
-                });
-
-                // Configurar el formulario del modal para la acción de movimiento múltiple
-                document.getElementById('accionMover').value = 'mover_multiple';
-                document.getElementById('moverArchivo').value = ''; // No se usa para múltiples
-                document.getElementById('moverArchivosJson').value = JSON.stringify(Array.from(seleccionados));
-
-                document.getElementById('modalMover').style.display = 'flex';
-            });
-    }
-
-    // --- Otros Eventos ---
-    document.addEventListener('keydown', e => {
-        if (e.key === 'Escape') {
-            document.querySelectorAll('.modal').forEach(m => m.style.display = 'none');
-        }
-    });
-
-    function toggleMenuOrden() {
-        const menu = document.getElementById("menuOrden");
-        menu.style.display = (menu.style.display === "none" || !menu.style.display) ? "block" : "none";
-    }
-
-    document.addEventListener("click", function(e) {
-        if (!e.target.closest('#menuOrden') && !e.target.closest('.btn-top')) {
-            document.getElementById("menuOrden").style.display = "none";
-        }
-    });
-
-    document.getElementById('buscador').addEventListener('input', function() {
-        const valor = this.value.trim();
-        const resultadosDiv = document.getElementById('resultadosBusqueda');
-
-        if (valor.length < 2) {
-            resultadosDiv.innerHTML = '';
-            return;
-        }
-
-        fetch('buscar.php?q=' + encodeURIComponent(valor))
-            .then(res => res.json())
-            .then(datos => {
-                if (!datos.length) {
-                    resultadosDiv.innerHTML = '<p style="color:gray;">🔍 No se encontraron resultados.</p>';
-                    return;
-                }
-
-                const html = datos.map(item => {
-                    const icono = item.tipo === 'carpeta' ? '📁' : '📄';
-                    const ruta = item.tipo === 'carpeta'
-                        ? 'index.php?carpeta=' + encodeURIComponent(item.ruta)
-                        : item.ruta;
-
-                    return `<div style="margin: .4rem 0;">
-                        ${icono} <a href="${ruta}" target="${item.tipo === 'archivo' ? '_blank' : '_self'}"
-                        style="color:#3949ab;text-decoration:none;">${item.ruta}</a>
-                    </div>`;
-                }).join('');
-
-                resultadosDiv.innerHTML = html;
-            });
-    });
-
-    function abrirWhatsapp() {
-        const ancho = 800;
-        const alto = 600;
-        const izquierda = (window.innerWidth - ancho) / 2;
-        const arriba = (window.innerHeight - alto) / 2;
-        window.open('https://web.whatsapp.com', 'WhatsAppChat',
-            `width=${ancho},height=${alto},left=${izquierda},top=${arriba},resizable=yes,scrollbars=yes`);
-    }
-    function restaurarItem() {
-    if (!confirm("¿Restaurar el elemento a su ubicación original?")) return;
-
-    enviarFormularioAccion('restaurar');
-}
-function restaurarSeleccionados() {
-    if (!confirm("¿Restaurar los elementos seleccionados a su ubicación original?")) return;
-
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = 'index.php';
-
-    form.innerHTML = `
-        <input type="hidden" name="accion" value="restaurar_multiples">
-        <input type="hidden" name="archivos" value="${Array.from(seleccionados).join('|')}">
-    `;
-
-    document.body.appendChild(form);
-    form.submit();
-}
+<!-- ### NUEVO ### Pasar variables de PHP a JS para la lógica de compartir -->
+<?php
+$panelConfig = [
+    'esAdmin' => $esAdmin,
+    'sistemaPassword' => $_ENV['SISTEMA_PASSWORD'] ?? '',
+    'miCarpeta' => $nombreCarpetaUsuarioLogueado,
+    'todosLosUsuarios' => array_values($carpetasDeUsuarios),
+    'carpetaRelativaUrlEncoded' => urlencode($carpetaRelativa),
+    'carpetaRelativaHtml' => htmlspecialchars($carpetaRelativa, ENT_QUOTES),
+    'carpetaRelativaSlashes' => addslashes($carpetaRelativa),
+    'enPapelera' => ($carpetaRelativa === '.papelera_creawebes'),
+    'miUsuarioDesdeIndex' => $_SESSION['usuario'] ?? ''
+];
+?>
+<script id="panel-config" type="application/json">
+<?= json_encode($panelConfig) ?>
+</script>
+<script src="assets/panel.js?v=<?= time() ?>"></script>
 
 
-    </script>
+
 </body>
 </html>

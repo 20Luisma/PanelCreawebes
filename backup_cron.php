@@ -1,78 +1,175 @@
 <?php
-// backup_cron.php – Copia de seguridad automática (web + cron seguro)
+// backup_cron.php – Backup automático por cron (robusto para >10 GB)
 
-$root  = realpath(__DIR__);
-$esCli = php_sapi_name() === 'cli';
-
-if (!$esCli) {
-    $token = $_GET['token'] ?? '';
-    if ($token !== 'mi_token_alfred_2025') {
-        http_response_code(403);
-        exit('❌ Token incorrecto o ausente.');
-    }
+if (php_sapi_name() !== 'cli') {
+    // Aun así funciona vía web, pero cron/CLI es lo recomendado
 }
 
-// --- RUTAS ---
-$backupDir   = $root . '/_backups/registros';
-$informesDir = $root . '/_backups/informes';
-$tanda       = 40;
+ignore_user_abort(true);
+set_time_limit(0);
+@ini_set('memory_limit', '512M');
 
-// Crear carpetas si no existen
-if (!is_dir($backupDir)) mkdir($backupDir, 0775, true);
-if (!is_dir($informesDir)) {
-    mkdir($informesDir, 0775, true);
-    file_put_contents($informesDir . '/.htaccess', "Deny from all");
+$root       = realpath(__DIR__);
+$ts         = date('Y-m-d_H-i-s');
+$dirBackup  = $root . '/_backups/registros';
+$dirInforme = $root . '/_backups/informes';
+$dirCache   = $root . '/_backups/.cache';
+$zipName    = "backup_$ts.zip";
+$zipPathTmp = "$dirBackup/$zipName.tmp"; // temporal
+$zipPath    = "$dirBackup/$zipName";
+$logFile    = "$dirInforme/log_backup_$ts.txt";
+
+$maxLogs    = 14;     // conserva 14 logs
+$maxZips    = 7;      // conserva 7 zips
+$storeFrom  = 100 * 1024 * 1024; // >100 MB almacena sin comprimir (STORE)
+$skipZipExt = true;   // no meter .zip dentro del zip
+
+$excluir = [
+    '_backups',
+    '.papelera_creawebes',
+    'usuarios',
+    '.instalador_creawebes',
+];
+
+function logl($msg) {
+    global $logFile;
+    file_put_contents($logFile, "[".date('H:i:s')."] $msg\n", FILE_APPEND);
 }
 
-// Eliminar backups antiguos (mantener 7)
-$backups = glob($backupDir . '/backup_*.zip');
-usort($backups, fn($a, $b) => filemtime($a) - filemtime($b));
-while (count($backups) >= 7) unlink(array_shift($backups));
+function starts_with($haystack, $needle) {
+    return strncmp($haystack, $needle, strlen($needle)) === 0;
+}
 
-// --- CREAR ZIP ---
-$fechaHora = date('Y-m-d_H-i-s');
-$zipName   = "backup_$fechaHora.zip";
-$zipPath   = "$backupDir/$zipName";
+// Crear carpetas
+@mkdir($dirBackup, 0775, true);
+if (!is_dir($dirInforme)) {
+    @mkdir($dirInforme, 0775, true);
+    @file_put_contents($dirInforme . '/.htaccess', "Deny from all");
+}
+@mkdir($dirCache, 0775, true);
+
+// Iniciar log
+file_put_contents($logFile, "=== Backup automático iniciado: $ts ===\n");
+logl("Raíz: $root");
+
+// Comprobar ZipArchive
+if (!class_exists('ZipArchive')) {
+    logl("❌ ZipArchive no disponible");
+    exit(1);
+}
 
 $zip = new ZipArchive;
-if ($zip->open($zipPath, ZipArchive::CREATE) !== TRUE) {
-    exit('❌ No se pudo crear ZIP.');
+if ($zip->open($zipPathTmp, ZipArchive::CREATE) !== TRUE) {
+    logl("❌ No se pudo crear ZIP temporal: $zipPathTmp");
+    exit(1);
 }
 
-$excluir = ['/_backups', '/.git', '/node_modules', '/vendor'];
-$tamañoMaximo = 500 * 1024 * 1024; // 500 MB
-
-$it = new RecursiveIteratorIterator(
-    new RecursiveDirectoryIterator($root, RecursiveDirectoryIterator::SKIP_DOTS)
+// Filtro para no entrar en carpetas excluidas
+$dirIter = new RecursiveDirectoryIterator(
+    $root,
+    FilesystemIterator::SKIP_DOTS | FilesystemIterator::FOLLOW_SYMLINKS
 );
 
+$filterIter = new RecursiveCallbackFilterIterator(
+    $dirIter,
+    function ($current, $key, $iterator) use ($root, $excluir) {
+        $rel = ltrim(str_replace(['\\', $root], ['/', ''], $current->getPathname()), '/');
+        foreach ($excluir as $ex) {
+            if (starts_with($rel, $ex . '/')) {
+                return false; // no entrar
+            }
+            if ($rel === $ex) {
+                return false;
+            }
+        }
+        return true;
+    }
+);
+
+$it = new RecursiveIteratorIterator($filterIter, RecursiveIteratorIterator::LEAVES_ONLY);
+
+$total = 0;
+$added = 0;
+$skips = 0;
+$start = microtime(true);
+
 foreach ($it as $f) {
-    $rutaAbs = $f->getRealPath();
-    $rutaRel = ltrim(str_replace($root, '', $rutaAbs), '/\\');
+    /** @var SplFileInfo $f */
+    if (!$f->isFile()) continue;
+    $total++;
 
-    // Excluir carpetas específicas
-    foreach ($excluir as $rutaExcluida) {
-        if (strpos($rutaAbs, $rutaExcluida) !== false) continue 2;
+    $abs = $f->getRealPath();
+    $rel = ltrim(str_replace(['\\', $root . DIRECTORY_SEPARATOR], ['/', ''], $abs), '/');
+
+    // Saltar .zip si está activado
+    if ($skipZipExt && preg_match('/\.zip$/i', $rel)) { $skips++; continue; }
+
+    // Saltar no legibles
+    if (!is_readable($abs)) { $skips++; logl("Skip (no legible): $rel"); continue; }
+
+    $size = $f->getSize();
+
+    // Elegir compresión: STORE para archivos grandes, DEFLATE para el resto
+    $compression = ($size >= $storeFrom) ? ZipArchive::CM_STORE : ZipArchive::CM_DEFLATE;
+
+    // Añadir
+    if (!$zip->addFile($abs, $rel)) {
+        $skips++; logl("Skip (fallo addFile): $rel");
+        continue;
     }
 
-    // Excluir archivos muy grandes
-    if ($f->getSize() > $tamañoMaximo) continue;
+    // Asegurar compresión elegida
+    if (!$zip->setCompressionName($rel, $compression)) {
+        // si falla, al menos ya está añadido con la compresión por defecto
+    }
 
-    // Excluir archivos ocultos
-    if (basename($rutaAbs)[0] === '.') continue;
+    $added++;
 
-    $zip->addFile($rutaAbs, $rutaRel);
+    // Log esporádico
+    if ($added % 1000 === 0) {
+        $elapsed = microtime(true) - $start;
+        logl("Progreso: $added añadidos / $total vistos (t=".round($elapsed,1)."s)");
+    }
 }
 
-// Intentar cerrar el ZIP correctamente
-if ($zip->close()) {
-    clearstatcache();
-    if (file_exists($zipPath)) {
-        echo "✅ Backup creado correctamente: " . basename($zipPath) . " (" . round(filesize($zipPath)/1024/1024, 2) . " MB)";
+// Cerrar ZIP y renombrar de forma atómica
+if (!$zip->close()) {
+    logl("❌ Error al cerrar ZIP (posible falta de ZIP64 en el hosting)");
+    // dejamos el .tmp para diagnóstico
+    exit(1);
+}
+
+if (!@rename($zipPathTmp, $zipPath)) {
+    logl("❌ No se pudo renombrar ZIP temporal a definitivo");
+    // intentamos copiar como fallback
+    if (@copy($zipPathTmp, $zipPath)) {
+        @unlink($zipPathTmp);
+        logl("⚠️  Hecho fallback por copia");
     } else {
-        echo "❌ ZIP cerrado pero no se encuentra el archivo.";
+        logl("❌ Falló también la copia de respaldo");
+        exit(1);
     }
-} else {
-    unlink($zipPath); // Eliminar si está corrupto
-    echo "❌ No se pudo cerrar correctamente el ZIP. Eliminado.";
 }
+
+// Rotación de backups
+$existentes = glob("$dirBackup/backup_*.zip");
+usort($existentes, fn($a, $b) => filemtime($b) - filemtime($a));
+foreach (array_slice($existentes, $maxZips) as $f) @unlink($f);
+
+// Rotación de logs
+$logs = glob("$dirInforme/log_backup_*.txt");
+usort($logs, fn($a, $b) => filemtime($b) - filemtime($a));
+foreach (array_slice($logs, $maxLogs) as $lf) @unlink($lf);
+
+// Resumen final
+$elapsed = microtime(true) - $start;
+$tamMB   = file_exists($zipPath) ? (filesize($zipPath) / 1024 / 1024) : 0;
+
+logl("Añadidos: $added | Saltados: $skips | Vistos: $total");
+logl("Tamaño final: ".round($tamMB,2)." MB");
+logl("Duración: ".round($elapsed,1)." s");
+logl("ZIP: $zipPath");
+file_put_contents($logFile, "=== Backup finalizado ===\n", FILE_APPEND);
+
+// Mensaje para cron/mail
+echo "✅ Backup OK: $zipName (".round($tamMB,2)." MB) — añadidos:$added, saltados:$skips, duración:".round($elapsed,1)."s\n";

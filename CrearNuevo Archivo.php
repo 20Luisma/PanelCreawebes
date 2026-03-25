@@ -1,31 +1,14 @@
 <?php
-session_start();
+require_once __DIR__ . '/verificar_sesion.php';
+require_once __DIR__ . '/src/autoload.php';
+
+use Infrastructure\Service\FileExplorerService;
 
 $root = realpath(__DIR__);
 $carpetaPorURL = $_GET['carpeta'] ?? '';
 $mensaje = '';
-$reemplazar = isset($_POST['forzar']) && $_POST['forzar'] === '1';
 
-function obtenerCarpetas($base, $root, $nivel = 0) {
-    $lista = [];
-    $items = scandir($base);
-    foreach ($items as $item) {
-        if ($item === '.' || $item === '..') continue;
-        $ruta = $base . '/' . $item;
-        if (is_dir($ruta)) {
-            $rel = ltrim(str_replace($root, '', $ruta), '/\\');
-            $indent = str_repeat('— ', $nivel);
-            $lista[] = ['ruta' => $rel, 'nombre' => $indent . ($rel ?: '/')];
-            $lista = array_merge($lista, obtenerCarpetas($ruta, $root, $nivel + 1));
-        }
-    }
-    return $lista;
-}
-$carpetas = obtenerCarpetas($root, $root);
-
-function obtenerRutaRelativa($root, $abs) {
-    return ltrim(str_replace($root, '', $abs), '/\\');
-}
+$isAjaxRequest = isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $nombreArchivo = trim($_POST['nombre'] ?? '');
@@ -38,39 +21,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (!$extManual) {
         $mensaje = '❌ Debes indicar una extensión.';
     } else {
-        if (!str_ends_with($nombreArchivo, ".$extManual")) {
-            $nombreArchivo .= ".$extManual";
+        $nombreCompleto = $nombreArchivo;
+        if (!str_ends_with($nombreCompleto, ".$extManual")) {
+            $nombreCompleto .= ".$extManual";
         }
 
         $rutaDestinoAbs = $root . ($carpetaRel ? '/' . $carpetaRel : '');
-        if (strpos(realpath($rutaDestinoAbs), $root) !== 0) {
+        $realDest = realpath($rutaDestinoAbs);
+
+        if (!$realDest || strpos($realDest, $root) !== 0) {
             $mensaje = '❌ Carpeta no permitida.';
         } else {
             if (!is_dir($rutaDestinoAbs)) {
                 mkdir($rutaDestinoAbs, 0777, true);
             }
 
-            $rutaFinal = $rutaDestinoAbs . '/' . $nombreArchivo;
-            if (file_exists($rutaFinal) && !$reemplazar) {
-                $mensaje = '⚠️ El archivo ya existe: ' . obtenerRutaRelativa($root, $rutaFinal) .
-                           '<br><br><form method="post" onsubmit="beforeSubmit()">'
-                           . '<input type="hidden" name="nombre" value="' . htmlspecialchars($_POST['nombre']) . '">'
-                           . '<input type="hidden" name="extension" value="' . htmlspecialchars($_POST['extension']) . '">'
-                           . '<input type="hidden" name="carpeta" value="' . htmlspecialchars($_POST['carpeta']) . '">'
-                           . '<input type="hidden" name="codigo" value="' . htmlspecialchars($_POST['codigo']) . '">'
-                           . '<input type="hidden" name="forzar" value="1">'
-                           . '<button type="submit">✅ Sí, reemplazar</button></form>';
+            // Anti-sobrescritura: genera nombre disponible
+            $nombreSinExt = pathinfo($nombreCompleto, PATHINFO_FILENAME);
+            $nombreFinal = $nombreSinExt;
+            $contador = 2;
+            while (file_exists($rutaDestinoAbs . '/' . $nombreFinal . '.' . $extManual)) {
+                $nombreFinal = $nombreSinExt . $contador;
+                $contador++;
+            }
+            $rutaFinal = $rutaDestinoAbs . '/' . $nombreFinal . '.' . $extManual;
+
+            $codigo = base64_decode($codigoBase64);
+            $ok = @file_put_contents($rutaFinal, $codigo);
+
+            if ($ok === false) {
+                $mensaje = '❌ No se pudo guardar. Revisá permisos.';
             } else {
-                $codigo = base64_decode($codigoBase64);
-                $ok = @file_put_contents($rutaFinal, $codigo);
-                if ($ok === false) {
-                    $mensaje = '❌ No se pudo guardar. Revisá permisos.';
-                } else {
-                    $mensaje = '✅ Archivo guardado en <strong>' .
-                               obtenerRutaRelativa($root, $rutaFinal) . '</strong>';
-                }
+                $carpetaCreadaAbs = dirname($rutaFinal);
+                $carpetaRelCreada = ltrim(str_replace($root, '', $carpetaCreadaAbs), '/\\');
+                header('Location: index.php?carpeta=' . urlencode($carpetaRelCreada));
+                exit();
             }
         }
+    }
+
+    if ($isAjaxRequest) {
+        echo $mensaje;
+        exit;
     }
 }
 ?>
@@ -92,6 +84,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     .alert.ok{background:#d4edda;color:#155724}
     .alert.err{background:#fff3cd;color:#856404}
     .toolbar{margin-top:1rem;display:flex;gap:.5rem;flex-wrap:wrap}
+    .spinner{display:inline-block;width:14px;height:14px;border:2px solid #ccc;border-top-color:#3949ab;border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-left:6px}
+    @keyframes spin{to{transform:rotate(360deg)}}
   </style>
 </head>
 <body>
@@ -101,7 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <h3>📂 Carpeta actual: <?= htmlspecialchars($carpetaPorURL) ?></h3>
 <?php endif; ?>
 
-<?php if($mensaje): ?>
+<?php if($mensaje && !$isAjaxRequest): ?>
   <div class="alert <?= str_starts_with($mensaje,'✅') ? 'ok':'err' ?>">
     <?= $mensaje ?>
   </div>
@@ -124,26 +118,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   </datalist>
 
   <label>Carpeta destino</label>
-  <select name="carpeta">
+  <select name="carpeta" id="selectCarpeta">
     <option value="">/ (raíz)</option>
-    <?php foreach ($carpetas as $c): ?>
-      <option value="<?= htmlspecialchars($c['ruta']) ?>" <?= ($c['ruta'] === $carpetaPorURL) ? 'selected' : '' ?>>
-        <?= htmlspecialchars($c['nombre']) ?>
-      </option>
-    <?php endforeach; ?>
+    <option value="" disabled>Cargando carpetas…</option>
   </select>
 
   <label>Código</label>
   <div id="editor"></div>
   <textarea id="codigo" name="codigo" style="display:none"></textarea>
 
-  <div class="toolbar">
-    <button type="button" onclick="copiar()">📋 Copiar</button>
-    <button type="button" onclick="descargar()">📥 Descargar</button>
-    <button type="button" onclick="limpiar()">🧹 Limpiar</button>
-    <button type="button" onclick="buscar()">🔍 Buscar</button>
-    <button type="submit">💾 Guardar archivo</button>
-   </div>
+<div class="toolbar">
+  <button type="button" onclick="copiar()">📋 Copiar</button>
+  <button type="button" onclick="descargar()">📥 Descargar</button>
+  <button type="button" onclick="limpiar()">🧹 Limpiar</button>
+  <button type="button" onclick="buscar()">🔍 Buscar</button>
+  <button type="button" onclick="vistaPrevia()">👁️ Vista previa</button>
+  <button type="button" onclick="deshacer()">↩️ Deshacer</button>
+  <button type="button" onclick="rehacer()">↪️ Rehacer</button>
+  <button type="submit">💾 Guardar archivo</button>
+</div>
 </form>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.4.14/ace.js"></script>
@@ -152,6 +145,30 @@ const ed = ace.edit("editor");
 ed.setTheme("ace/theme/github");
 ed.session.setMode("ace/mode/php");
 ed.setOptions({fontSize:"14px",showPrintMargin:false,wrap:true});
+
+// --- Carga AJAX de carpetas (no bloquea el render) ---
+const carpetaPorURL = <?= json_encode($carpetaPorURL) ?>;
+
+(function cargarCarpetas() {
+  fetch('api_carpetas.php')
+    .then(r => r.json())
+    .then(carpetas => {
+      const sel = document.getElementById('selectCarpeta');
+      // Limpiar: dejar solo la raíz
+      sel.innerHTML = '<option value="">/ (raíz)</option>';
+      carpetas.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.ruta;
+        opt.textContent = c.nombre;
+        if (c.ruta === carpetaPorURL) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    })
+    .catch(() => {
+      const sel = document.getElementById('selectCarpeta');
+      sel.innerHTML = '<option value="">/ (raíz) – Error cargando carpetas</option>';
+    });
+})();
 
 function beforeSubmit(){
   document.getElementById('codigo').value = btoa(unescape(encodeURIComponent(ed.getValue())));
@@ -215,8 +232,55 @@ function leerArchivoLocal(input) {
   };
   lector.readAsText(archivo);
 }
+
+async function vistaPrevia() {
+  const nombre = document.querySelector('input[name="nombre"]').value.trim();
+  const extension = document.querySelector('input[name="extension"]').value.trim();
+  const codigo = ed.getValue();
+
+  if (!nombre || !extension) {
+    alert('❌ Debes ingresar un nombre y una extensión.');
+    return;
+  }
+
+  const formData = new FormData();
+  formData.set('codigo', btoa(unescape(encodeURIComponent(codigo))));
+  formData.set('extension', extension);
+
+  try {
+    const response = await fetch('preview.php', {
+      method: 'POST',
+      body: formData
+    });
+
+    const blob = await response.blob();
+    const vista = window.open();
+    const url = URL.createObjectURL(blob);
+    vista.location.href = url;
+  } catch (err) {
+    alert('❌ Error al previsualizar el archivo.');
+    console.error(err);
+  }
+}
+
+function deshacer() { ed.undo(); }
+function rehacer() { ed.redo(); }
 </script>
+<script>
+const usuario = "<?= $_SESSION['usuario'] ?>";
+const clave = "pestanas_" + usuario;
 
+localStorage[clave] = (parseInt(localStorage[clave] || 0) + 1);
 
+window.addEventListener('beforeunload', () => {
+  const restantes = Math.max((parseInt(localStorage[clave] || 1)) - 1, 0);
+  if (restantes === 0) {
+    localStorage.removeItem(clave);
+    navigator.sendBeacon('salir_rapido.php');
+  } else {
+    localStorage[clave] = restantes;
+  }
+});
+</script>
 </body>
 </html>

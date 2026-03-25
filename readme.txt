@@ -76,6 +76,6 @@ Funciones disponibles desde la interfaz web:
 - Si querés agregar funcionalidades nuevas (compresión zip, vista tipo tabla, multiusuario), el código está modularizado para escalar fácilmente.
 - Ideal para uso personal o como panel de administración privado.
 
---
+---
 
 © 2025 – Creawebes

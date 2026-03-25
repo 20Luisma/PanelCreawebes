@@ -1,0 +1,39 @@
+# ==========================================
+# 🛡️ PROTECCIÓN DE ARCHIVOS SENSIBLES
+# ==========================================
+
+# Bloquear acceso directo a .env
+<Files ".env">
+    Require all denied
+</Files>
+<Files ".env.example">
+    Require all denied
+</Files>
+
+# Bloquear acceso a archivos de configuración
+<Files ".gitignore">
+    Require all denied
+</Files>
+<Files ".cursorrules">
+    Require all denied
+</Files>
+
+# Bloquear archivos de documentación interna
+<FilesMatch "\.(md|bak\.md)$">
+    Require all denied
+</FilesMatch>
+
+# Bloquear acceso directo al código fuente (Clean Architecture)
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^src/ - [F,L]
+    RewriteRule ^partials/ - [F,L]
+    RewriteRule ^\.agents/ - [F,L]
+    RewriteRule ^\.vscode/ - [F,L]
+    RewriteRule ^memory_backups/ - [F,L]
+</IfModule>
+
+# Bloquear acceso al autoload
+<Files "autoload.php">
+    Require all denied
+</Files>

@@ -1,40 +1,31 @@
 <?php
-session_start();
-if (!isset($_SESSION['logueado']) || $_SESSION['logueado'] !== true) {
+require_once __DIR__ . '/verificar_sesion.php';
+
+if (empty($_SESSION['logueado'])) {
     http_response_code(403);
     echo json_encode(["error" => "No autorizado"]);
     exit;
 }
 
-$root = realpath(__DIR__);
-$query = strtolower(trim($_GET['q'] ?? ''));
+require_once __DIR__ . '/src/autoload.php';
 
-if (!$query) {
-    echo json_encode([]);
-    exit;
-}
+use Infrastructure\Service\FileSearchService;
+use Infrastructure\Persistence\FileOnlineUsersRepository;
+use Application\UseCase\SearchUseCase;
+use Presentation\Controller\SearchController;
 
-function buscarRecursivo($base, $rel = '', $query = '') {
-    $resultados = [];
-    $carpeta = $rel ? "$base/$rel" : $base;
-    foreach (scandir($carpeta) as $item) {
-        if ($item === '.' || $item === '..') continue;
-        $ruta = "$carpeta/$item";
-        $rutaRel = ltrim("$rel/$item", '/');
-        if (stripos($item, $query) !== false) {
-            $resultados[] = [
-                'nombre' => $item,
-                'ruta'   => $rutaRel,
-                'tipo'   => is_dir($ruta) ? 'carpeta' : 'archivo'
-            ];
-        }
-        if (is_dir($ruta)) {
-            $resultados = array_merge($resultados, buscarRecursivo($base, $rutaRel, $query));
-        }
-    }
-    return $resultados;
-}
+global $pathSecurityService, $esAdmin;
 
-$resultados = buscarRecursivo($root, '', $query);
-header('Content-Type: application/json');
-echo json_encode($resultados);
+$archivoUsuarios = __DIR__ . '/actividad_usuarios.json';
+$onlineUserRepo = new FileOnlineUsersRepository($archivoUsuarios);
+
+$searchService = new FileSearchService($pathSecurityService);
+$searchUseCase = new SearchUseCase($searchService, $pathSecurityService, $onlineUserRepo, ROOT_DIR);
+$searchController = new SearchController($searchUseCase);
+
+$usuarioLogueado = $_SESSION['usuario'] ?? null;
+$overrideActive = $_SESSION['override_root_index_active'] ?? false;
+$overrideExpiry = $_SESSION['override_root_index_expiry'] ?? null;
+
+$searchController->handleRequest($_GET, $usuarioLogueado, $esAdmin, $overrideActive, $overrideExpiry);
+?>

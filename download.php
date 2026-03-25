@@ -1,57 +1,26 @@
 <?php
-$root = realpath(__DIR__);
-$archivoRelativo = $_GET['archivo'] ?? '';
-$ruta = realpath($root . '/' . $archivoRelativo);
+require_once __DIR__ . '/verificar_sesion.php';
 
-if (!$ruta || strpos($ruta, $root) !== 0) {
-    die("❌ Ruta inválida o no permitida.");
+if (empty($_SESSION['logueado'])) {
+    header('HTTP/1.1 403 Forbidden');
+    header('Content-Type: text/plain; charset=UTF-8');
+    exit("Acceso denegado: Por favor, inicie sesión.");
 }
 
-// Si es archivo, descargar directamente
-if (is_file($ruta)) {
-    $nombre = basename($ruta);
-    header('Content-Description: File Transfer');
-    header('Content-Type: application/octet-stream');
-    header('Content-Disposition: attachment; filename="' . $nombre . '"');
-    header('Expires: 0');
-    header('Cache-Control: must-revalidate');
-    header('Pragma: public');
-    header('Content-Length: ' . filesize($ruta));
-    readfile($ruta);
-    exit;
-}
+require_once __DIR__ . '/src/autoload.php';
 
-// Si es carpeta, crear ZIP y descargar
-if (is_dir($ruta)) {
-    $nombreZip = basename($ruta) . '.zip';
-    $tmpZip = tempnam(sys_get_temp_dir(), 'zip');
+use Infrastructure\Service\DownloadService;
+use Application\UseCase\DownloadUseCase;
+use Presentation\Controller\DownloadController;
 
-    $zip = new ZipArchive();
-    $zip->open($tmpZip, ZipArchive::OVERWRITE | ZipArchive::CREATE);
+global $pathSecurityService, $esAdmin;
 
-    $lenBase = strlen($ruta) + 1;
-    $files = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($ruta, FilesystemIterator::SKIP_DOTS),
-        RecursiveIteratorIterator::SELF_FIRST
-    );
+$downloadService = new DownloadService($pathSecurityService, ROOT_DIR);
+$downloadUseCase = new DownloadUseCase($downloadService, $pathSecurityService, ROOT_DIR);
+$downloadController = new DownloadController($downloadUseCase, $downloadService);
 
-    foreach ($files as $file) {
-        $rutaInterna = substr($file, $lenBase);
-        if ($file->isDir()) {
-            $zip->addEmptyDir($rutaInterna);
-        } else {
-            $zip->addFile($file, $rutaInterna);
-        }
-    }
+$overrideActive = $_SESSION['override_root_index_active'] ?? false;
+$overrideExpiry = $_SESSION['override_root_index_expiry'] ?? null;
 
-    $zip->close();
-
-    header('Content-Type: application/zip');
-    header('Content-Disposition: attachment; filename="' . $nombreZip . '"');
-    header('Content-Length: ' . filesize($tmpZip));
-    readfile($tmpZip);
-    unlink($tmpZip);
-    exit;
-}
-
-die("❌ No se encontró el recurso.");
+$downloadController->handleRequest($_GET, $esAdmin, $overrideActive, $overrideExpiry);
+?>

@@ -1,29 +1,20 @@
 <?php
-// Descomprimir ZIP a una carpeta seleccionada
-$root = realpath(__DIR__);
-$archivoZip = $_POST['archivo'] ?? '';
-$destinoRel = trim($_POST['destino'] ?? '');
+// Incluimos verificar_sesion.php que ya inicia sesión y protege el endpoint
+require_once __DIR__ . '/verificar_sesion.php';
 
-$rutaZip = realpath($root . '/' . $archivoZip);
-$rutaDestino = $destinoRel === '' ? $root : realpath($root . '/' . $destinoRel);
+use Infrastructure\Service\ZipService;
+use Application\UseCase\ZipUseCase;
+use Presentation\Controller\ZipController;
 
-if (!$rutaZip || !is_file($rutaZip) || pathinfo($rutaZip, PATHINFO_EXTENSION) !== 'zip') {
-    http_response_code(400);
-    exit('❌ Archivo ZIP inválido.');
-}
+// Activar dependencias
+global $pathSecurityService, $esAdmin;
 
-if (!$rutaDestino || strpos($rutaDestino, $root) !== 0) {
-    http_response_code(400);
-    exit('❌ Carpeta destino inválida.');
-}
+$zipService = new ZipService($pathSecurityService, ROOT_DIR);
+$zipUseCase = new ZipUseCase($zipService, ROOT_DIR);
+$zipController = new ZipController($zipUseCase);
 
-$zip = new ZipArchive();
-if ($zip->open($rutaZip) !== true) {
-    http_response_code(500);
-    exit('❌ No se pudo abrir el ZIP.');
-}
+$overrideActive = $_SESSION['override_root_index_active'] ?? false;
+$overrideExpiry = $_SESSION['override_root_index_expiry'] ?? null;
 
-$zip->extractTo($rutaDestino);
-$zip->close();
-
-echo '✅ ZIP descomprimido con éxito';
+$zipController->handleExtractRequest($_POST, $esAdmin, $overrideActive, $overrideExpiry);
+?>
