@@ -109,6 +109,7 @@ $archivosSistema = [
 
     // --- HERRAMIENTAS DE DESARROLLO (NO DEBEN SER VISIBLES) ---
     '.agents',
+    '.git',
     '.vscode',
     '.cursorrules',
 
