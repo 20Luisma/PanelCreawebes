@@ -115,12 +115,12 @@ body {
 /* 🎯 CONTENEDOR PRINCIPAL (GLASSMORPHISM) */
 .explorador {
   width: 100%;
-  max-width: 1200px;
+  max-width: 1600px; /* <-- AMPLIAMOS EL ANCHO MÁXIMO PARA QUE NO SE VEA COMPRIMIDO */
   background: var(--glass-bg);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: var(--glass-border);
-  padding: 2.5rem;
+  padding: 3rem; /* <-- UN POCO MÁS DE AIRE INTERNO */
   border-radius: var(--radio-xl);
   margin: 0 auto;
   box-shadow: var(--glass-shadow);

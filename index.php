@@ -462,38 +462,21 @@ foreach ($actividad as $usuario => $datos) {
 }
 ?>
 
-<div class="logout-link-container" style="max-width: 1200px; margin: auto; text-align:right; margin-bottom:1rem;">
-    <span style="margin-right:1rem; font-weight:bold; color:var(--color-texto);">
-        👤 Usuario: <?= htmlspecialchars($_SESSION['usuario'] ?? 'Invitado') ?>
-    </span>
-    <a href="logout.php" onclick="sessionStorage.removeItem('sistemaVisible');"
-       style="color:var(--color-primario); font-weight:bold; text-decoration:none;">
-       🔓 Cerrar sesión
-    </a>
-</div>
-<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet">
+<div class="explorador">
 
-<!-- Banner visual -->
+    <!-- Header / Usuario -->
+    <div style="display:flex; justify-content:flex-end; align-items:center; margin-bottom: 2rem;">
+        <span style="font-weight: 500; margin-right: 1.5rem; color: var(--color-texto-ligero);">
+            👤 Usuario: <?= htmlspecialchars($_SESSION['usuario'] ?? 'Invitado') ?>
+        </span>
+        <a href="logout.php" onclick="sessionStorage.removeItem('sistemaVisible');" class="btn-top" style="text-decoration:none; padding: 0.5rem 1rem;">
+           🔓 Cerrar sesión
+        </a>
+    </div>
 
-<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet">
-
-<!-- Banner visual con degradado azul -->
-<div style="
-    font-family: 'Lato', sans-serif;
-    background: linear-gradient(90deg, #1e3c72, #2a5298);
-    color: white;
-    text-align: center;
-    padding: 30px 20px;
-    border-bottom: 1px solid #ccc;
-">
-  <h1 style="margin: 0; font-size: 36px; font-weight: 700;">Creawebes</h1>
-  <p style="margin: 8px 0 0; font-size: 16px; font-weight: 400;">
-    Plataforma profesional de gestión de archivos
-  </p>
-</div>
-<div style="height: 20px;"></div>
-
-
+    <!-- Banner visual (Hereda estilos del CSS ahora) -->
+    <h1 class="titulo-principal">Creawebes</h1>
+    <p class="titulo-sub">Plataforma profesional de gestión de archivos</p>
 
 
     <?php if ($error === 'existe'): ?><div class="error">❌ Ya existe un archivo o carpeta con ese nombre.</div><?php endif; ?>
@@ -688,6 +671,8 @@ foreach ($actividad as $usuario => $datos) {
     <?php if ($carpetaRelativa && $carpetaRelativa !== '.'): $padre = dirname($carpetaRelativa); $back  = $padre === '.' ? '' : '?carpeta=' . urlencode($padre); ?>
         <div class="volver"><a href="index.php<?= $back ?>">⬅️ Volver</a></div>
     <?php endif; ?>
+
+</div> <!-- /explorador contenedor -->
 
     <footer class="footer">© <?= date('Y') ?> Creawebes. Todos los derechos reservados.</footer>
 
