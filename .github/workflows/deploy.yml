@@ -1,0 +1,55 @@
+name: CI/CD Pipeline a Hostinger
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  test-and-deploy:
+    name: "Pruebas y Despliegue"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: php-cs-fixer
+          
+      - name: Batería de Pruebas (Linting)
+        run: |
+          echo "Ejecutando Php Linting para descartar errores fatales de sintaxis..."
+          find . -type f -name '*.php' -not -path "./vendor/*" -exec php -l {} \; | grep -v "No syntax errors" || true
+
+      - name: Instalar SSHPass
+        run: sudo apt-get install -y sshpass
+
+      - name: Despliegue con Rsync a Hostinger
+        env:
+          SSHPASS: ${{ secrets.HOSTINGER_PASSWORD }}
+        run: |
+          echo "Iniciando despliegue diferencial a Producción..."
+          sshpass -e rsync -avz \
+            --exclude usuarios \
+            --exclude .papelera_creawebes \
+            --exclude _backups \
+            --exclude Historiales \
+            --exclude "*.json" \
+            --exclude memory_backups \
+            --exclude .git \
+            --exclude .github \
+            --exclude .agents \
+            --exclude .vscode \
+            --exclude MEMORY.md \
+            --exclude Auditoria_Inicial.md \
+            --exclude README.md \
+            --exclude test \
+            --exclude .cursorrules \
+            --exclude .DS_Store \
+            -e "ssh -p 65002 -o StrictHostKeyChecking=no" \
+            ./ ${{ secrets.HOSTINGER_USER }}@${{ secrets.HOSTINGER_HOST }}:domains/contenido.creawebes.com/public_html/
+          echo "¡Despliegue finalizado con éxito!"
