@@ -586,3 +586,140 @@ function rechazarLlamada() {
 function abrirVideollamadaGeneral() {
   window.open("https://meet.jit.si/CreawebesSalaGeneral", "_blank");
 }
+
+// ============================================================
+// 🚀 DRAG & DROP - MÓDULO COMPLETO
+// ============================================================
+
+document.addEventListener('DOMContentLoaded', () => {
+
+    // ---- 1. DRAG & DROP PARA SUBIR ARCHIVOS DESDE EL PC ----
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const preview = document.getElementById('dropzone-preview');
+    const filenameSpan = document.getElementById('dropzone-filename');
+    const btnUpload = document.getElementById('btnUploadConfirm');
+
+    if (dropzone && fileInput) {
+
+        ['dragenter', 'dragover'].forEach(evt => {
+            dropzone.addEventListener(evt, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropzone.classList.add('dropzone--active');
+            });
+        });
+
+        ['dragleave', 'dragend'].forEach(evt => {
+            dropzone.addEventListener(evt, (e) => {
+                e.preventDefault();
+                dropzone.classList.remove('dropzone--active');
+            });
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropzone.classList.remove('dropzone--active');
+            dropzone.classList.add('dropzone--ready');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) setFileForUpload(files[0]);
+        });
+
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length > 0) setFileForUpload(fileInput.files[0]);
+        });
+
+        function setFileForUpload(file) {
+            filenameSpan.textContent = `📄 ${file.name}`;
+            preview.style.display = 'flex';
+            preview.style.alignItems = 'center';
+            preview.style.flexWrap = 'wrap';
+            dropzone.classList.add('dropzone--ready');
+
+            btnUpload.onclick = async () => {
+                btnUpload.disabled = true;
+                btnUpload.textContent = '⏳ Subiendo...';
+                const formData = new FormData();
+                formData.append('archivo', file);
+                const carpeta = panelConfig.carpetaRelativaUrlEncoded || '';
+                try {
+                    const response = await fetch(`index.php?carpeta=${carpeta}`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    if (response.ok) {
+                        btnUpload.textContent = '✅ ¡Listo!';
+                        setTimeout(() => window.location.reload(), 800);
+                    } else {
+                        btnUpload.textContent = '❌ Error al subir';
+                        btnUpload.disabled = false;
+                    }
+                } catch (err) {
+                    btnUpload.textContent = '❌ Error de red';
+                    btnUpload.disabled = false;
+                }
+            };
+        }
+    }
+
+    // ---- 2. DRAG & DROP PARA MOVER ARCHIVOS DENTRO DEL PANEL ----
+    const exploradorListaDnD = document.querySelector('ul.explorador');
+    if (!exploradorListaDnD) return;
+
+    let draggedItem = null;
+
+    exploradorListaDnD.querySelectorAll('li').forEach(li => {
+        li.setAttribute('draggable', 'true');
+
+        li.addEventListener('dragstart', (e) => {
+            draggedItem = li;
+            li.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', li.dataset.ruta || '');
+        });
+
+        li.addEventListener('dragend', () => {
+            draggedItem = null;
+            li.classList.remove('dragging');
+            exploradorListaDnD.querySelectorAll('li').forEach(l => l.classList.remove('drag-over'));
+        });
+
+        if (li.classList.contains('carpeta')) {
+            li.addEventListener('dragover', (e) => {
+                if (draggedItem && draggedItem !== li) {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    li.classList.add('drag-over');
+                }
+            });
+
+            li.addEventListener('dragleave', () => {
+                li.classList.remove('drag-over');
+            });
+
+            li.addEventListener('drop', async (e) => {
+                e.preventDefault();
+                li.classList.remove('drag-over');
+                if (!draggedItem || draggedItem === li) return;
+                const origen = draggedItem.dataset.ruta;
+                const destino = li.dataset.ruta;
+                if (!origen || !destino) return;
+                const nombreOrigen = draggedItem.querySelector('a')?.textContent?.trim() || origen;
+                const nombreDestino = li.querySelector('a')?.textContent?.trim() || destino;
+                if (!confirm(`¿Mover "${nombreOrigen}" dentro de "${nombreDestino}"?`)) return;
+                const formData = new FormData();
+                formData.append('accion', 'mover');
+                formData.append('origen', origen);
+                formData.append('destino', destino);
+                const carpeta = panelConfig.carpetaRelativaUrlEncoded || '';
+                try {
+                    await fetch(`index.php?carpeta=${carpeta}`, { method: 'POST', body: formData });
+                    window.location.reload();
+                } catch (err) {
+                    alert('❌ Error al mover el archivo.');
+                }
+            });
+        }
+    });
+});

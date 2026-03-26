@@ -560,11 +560,27 @@ foreach ($actividad as $usuario => $datos) {
 
     <div id="resultadosBusqueda"></div>
 
-    <div id="subida" style="display:none;margin:1rem 0; padding: 1.5rem; background: #f0f4ff; border-radius: .5rem;">
-        <form method="POST" enctype="multipart/form-data">
-            <input type="file" name="archivo" required style="margin-right:1rem;">
-            <button type="submit" class="btn-top">⬆️ Subir</button>
-        </form>
+    <!-- ====================================================== -->
+    <!-- 🚀 ZONA DRAG & DROP - Subida de archivos               -->
+    <!-- ====================================================== -->
+    <div id="subida" style="display:none; margin: 1.5rem 0;">
+        <div id="dropzone" class="dropzone">
+            <div class="dropzone-icon">📂</div>
+            <p class="dropzone-titulo">Arrastrá tu archivo aquí</p>
+            <p class="dropzone-sub">o hacé clic para seleccionarlo</p>
+            <form id="uploadForm" method="POST" enctype="multipart/form-data">
+                <input type="file" name="archivo" id="fileInput" required style="display:none;">
+                <button type="button" class="btn-top" onclick="document.getElementById('fileInput').click()" style="margin-top:1rem;">
+                    🗂️ Elegir archivo
+                </button>
+            </form>
+            <div id="dropzone-preview" style="display:none; margin-top: 1rem;">
+                <span id="dropzone-filename" style="font-weight:600; color: var(--color-primario);"></span>
+                <button type="button" class="btn-top" id="btnUploadConfirm" style="margin-left: 1rem; background: linear-gradient(135deg, #16a34a, #15803d);">
+                    ⬆️ Subir ahora
+                </button>
+            </div>
+        </div>
     </div>
 
     <?php if ($carpetaRelativa === '.papelera_creawebes'): ?>
@@ -633,7 +649,7 @@ foreach ($actividad as $usuario => $datos) {
         // Tampoco se le aplicará el color de fondo específico de "archivo de sistema oculto".
     }
 ?>
-    <li class="<?= $clasesCss ?>" style="<?= $estiloCss ?>" data-nombre="<?= htmlspecialchars($relativa) ?>" title="<?= htmlspecialchars($item) ?>">
+    <li class="<?= $clasesCss ?>" style="<?= $estiloCss ?>" data-nombre="<?= htmlspecialchars($relativa) ?>" data-ruta="<?= htmlspecialchars($relativa) ?>" title="<?= htmlspecialchars($item) ?>">
         <span style="font-size: 1.2rem;">
         <?php
         if ($dir && $item === 'usuarios') echo '👥';

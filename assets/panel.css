@@ -483,3 +483,77 @@ pre {
   .modal-content { padding: 1.5rem; }
   .grupo-busqueda input#buscador, .grupo-busqueda input#buscador:focus { width: 100%; }
 }
+
+/* ============================================================ */
+/* 🚀 DRAG & DROP - Estilos de la Dropzone y arrastre interno */
+/* ============================================================ */
+
+.dropzone {
+  border: 2px dashed #cbd5e1;
+  border-radius: var(--radio-lg);
+  padding: 3rem 2rem;
+  text-align: center;
+  cursor: pointer;
+  background: rgba(255,255,255,0.5);
+  backdrop-filter: blur(8px);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+.dropzone:hover {
+  border-color: var(--color-primario);
+  background: rgba(239, 246, 255, 0.6);
+}
+
+.dropzone--active {
+  border-color: var(--color-primario) !important;
+  background: rgba(219, 234, 254, 0.7) !important;
+  box-shadow: 0 0 0 4px rgba(30, 58, 138, 0.15);
+  transform: scale(1.01);
+}
+
+.dropzone--ready {
+  border-color: #16a34a;
+  border-style: solid;
+  background: rgba(240, 253, 244, 0.7);
+}
+
+.dropzone-icon {
+  font-size: 3.5rem;
+  margin-bottom: 0.5rem;
+  transition: transform 0.3s;
+}
+.dropzone--active .dropzone-icon {
+  transform: scale(1.2) translateY(-4px);
+}
+
+.dropzone-titulo {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--color-texto);
+  margin: 0.3rem 0;
+}
+
+.dropzone-sub {
+  font-size: 0.95rem;
+  color: var(--color-texto-ligero);
+  margin: 0;
+}
+
+/* Efecto de arrastre en los items del explorador */
+li.dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+  transform: scale(0.97) !important;
+}
+
+li.drag-over {
+  background: #dbeafe !important;
+  border: 2px solid var(--color-primario) !important;
+  box-shadow: var(--shadow-md) !important;
+  transform: scale(1.03) !important;
+}
+
+li[draggable="true"] {
+  cursor: grab;
+}
