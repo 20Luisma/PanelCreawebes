@@ -708,15 +708,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 const nombreOrigen = draggedItem.querySelector('a')?.textContent?.trim() || origen;
                 const nombreDestino = li.querySelector('a')?.textContent?.trim() || destino;
                 if (!confirm(`¿Mover "${nombreOrigen}" dentro de "${nombreDestino}"?`)) return;
+
+                // El backend espera 'archivo' como el origen y 'destino' como la carpeta destino
                 const formData = new FormData();
                 formData.append('accion', 'mover');
-                formData.append('origen', origen);
-                formData.append('destino', destino);
+                formData.append('archivo', origen);   // Ruta relativa del ítem a mover
+                formData.append('destino', destino);  // Ruta relativa de la carpeta destino
+                formData.append('forzar', '0');
+
+                // Feedback visual mientras se procesa
+                draggedItem.style.opacity = '0.4';
+                li.style.background = '#dbeafe';
+
                 const carpeta = panelConfig.carpetaRelativaUrlEncoded || '';
                 try {
-                    await fetch(`index.php?carpeta=${carpeta}`, { method: 'POST', body: formData });
+                    const res = await fetch(`index.php?carpeta=${carpeta}`, { method: 'POST', body: formData });
+                    // El backend redirige, así que siempre recargamos
                     window.location.reload();
                 } catch (err) {
+                    draggedItem.style.opacity = '1';
+                    li.style.background = '';
                     alert('❌ Error al mover el archivo.');
                 }
             });
