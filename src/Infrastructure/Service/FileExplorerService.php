@@ -20,15 +20,21 @@ class FileExplorerService {
 
     // --- Acciones principales ---
 
-    public function upload(string $rutaActual, array $fileData): array {
+    public function upload(string $rutaActual, array $fileData, bool $forzar = false): array {
         if ($fileData['error'] !== UPLOAD_ERR_OK) return ['error' => 'Error en la subida'];
         $nombre = basename($fileData['name']);
-        if ($this->isRootIndex($rutaActual . '/' . $nombre) && !$this->canTouchRootIndex()) {
+        $destino = $rutaActual . '/' . $nombre;
+        if ($this->isRootIndex($destino) && !$this->canTouchRootIndex()) {
             return ['error' => 'protegido_index'];
         }
-        move_uploaded_file($fileData['tmp_name'], $rutaActual . '/' . $nombre);
+        // Si ya existe y no se forzó el overwrite, avisar al frontend
+        if (file_exists($destino) && !$forzar) {
+            return ['error' => 'conflicto', 'archivo' => $nombre];
+        }
+        move_uploaded_file($fileData['tmp_name'], $destino);
         return ['ok' => true];
     }
+
 
     public function delete(string $rutaObjAbs, string $carpetaRelativa): array {
         if ($this->isRootIndex($rutaObjAbs) && !$this->canTouchRootIndex()) {

@@ -267,7 +267,19 @@ if (
 
     /* ---------- Subida de archivo ---------- */
     if (isset($_FILES['archivo']) && $_FILES['archivo']['error'] === UPLOAD_ERR_OK) {
-        $result = $explorerService->upload($rutaActual, $_FILES['archivo']);
+        $forzarUpload = ($_POST['forzar'] ?? '0') === '1';
+        $result = $explorerService->upload($rutaActual, $_FILES['archivo'], $forzarUpload);
+        // Responder JSON si la petición es AJAX (fetch desde panel.js)
+        $esAjax = (
+            ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest' ||
+            str_contains($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json')
+        );
+        if ($esAjax) {
+            header('Content-Type: application/json');
+            echo json_encode($result);
+            exit;
+        }
+        // Fallback para forms tradicionales
         if (isset($result['error'])) {
             header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) . '&error=' . $result['error']);
         } else {
@@ -275,6 +287,7 @@ if (
         }
         exit;
     }
+
 
     /* ---------- Resto de acciones ---------- */
     switch ($accion) {

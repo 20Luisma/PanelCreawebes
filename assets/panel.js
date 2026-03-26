@@ -740,28 +740,46 @@ document.addEventListener('DOMContentLoaded', () => {
         dropzone.classList.add('dropzone--ready');
 
         btnUpload.onclick = async () => {
-            btnUpload.disabled = true;
-            btnUpload.textContent = '⏳ Subiendo...';
-            const formData = new FormData();
-            formData.append('archivo', file);
-            const carpeta = panelConfig.carpetaRelativaUrlEncoded || '';
-            try {
-                const response = await fetch(`index.php?carpeta=${carpeta}`, {
-                    method: 'POST',
-                    body: formData
-                });
-                if (response.ok) {
-                    btnUpload.textContent = '✅ ¡Listo!';
-                    setTimeout(() => window.location.reload(), 800);
-                } else {
-                    btnUpload.textContent = '❌ Error al subir';
-                    btnUpload.disabled = false;
+            await subirArchivo(file, false);
+        };
+    }
+
+    async function subirArchivo(file, forzar) {
+        btnUpload.disabled = true;
+        btnUpload.textContent = '⏳ Subiendo...';
+        const formData = new FormData();
+        formData.append('archivo', file);
+        if (forzar) formData.append('forzar', '1');
+        const carpeta = panelConfig.carpetaRelativaUrlEncoded || '';
+        try {
+            const response = await fetch(`index.php?carpeta=${carpeta}`, {
+                method: 'POST',
+                headers: { 'Accept': 'application/json' },
+                body: formData
+            });
+            const data = await response.json();
+
+            if (data.ok) {
+                btnUpload.textContent = '✅ ¡Listo!';
+                setTimeout(() => window.location.reload(), 800);
+            } else if (data.error === 'conflicto') {
+                // ⚠️ El archivo ya existe: preguntar al usuario
+                btnUpload.disabled = false;
+                btnUpload.textContent = '⬆️ Subir ahora';
+                const sobrescribir = confirm(
+                    `⚠️ El archivo "${data.archivo}" ya existe en esta carpeta.\n\n¿Querés sobrescribirlo?`
+                );
+                if (sobrescribir) {
+                    await subirArchivo(file, true);
                 }
-            } catch (err) {
-                btnUpload.textContent = '❌ Error de red';
+            } else {
+                btnUpload.textContent = `❌ ${data.error || 'Error al subir'}`;
                 btnUpload.disabled = false;
             }
-        };
+        } catch (err) {
+            btnUpload.textContent = '❌ Error de red';
+            btnUpload.disabled = false;
+        }
     }
 
     // ---- 2. DRAG & DROP PARA MOVER ARCHIVOS DENTRO DEL PANEL ----
