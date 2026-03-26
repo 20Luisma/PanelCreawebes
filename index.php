@@ -266,26 +266,56 @@ if (
     $result = null;
 
     /* ---------- Subida de archivo ---------- */
-    if (isset($_FILES['archivo']) && $_FILES['archivo']['error'] === UPLOAD_ERR_OK) {
-        $forzarUpload = ($_POST['forzar'] ?? '0') === '1';
-        $result = $explorerService->upload($rutaActual, $_FILES['archivo'], $forzarUpload);
-        // Responder JSON si la petición es AJAX (fetch desde panel.js)
-        $esAjax = (
-            ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest' ||
-            str_contains($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json')
-        );
+    // Detección genérica de peticiones AJAX
+    $esAjax = (
+        ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest' ||
+        str_contains($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json')
+    );
+
+    // Si es un POST de archivo pero excede post_max_size, $_POST y $_FILES llegan vacíos 
+    // pero el CONTENT_LENGTH sigue ahí, indicando un truncamiento de PHP.
+    $contentLength = (int)($_SERVER['CONTENT_LENGTH'] ?? 0);
+    if ($contentLength > 0 && empty($_POST) && empty($_FILES) && isset($_GET['carpeta'])) {
         if ($esAjax) {
             header('Content-Type: application/json');
-            echo json_encode($result);
+            echo json_encode(['error' => 'El archivo supera el límite de subida del servidor']);
             exit;
         }
-        // Fallback para forms tradicionales
-        if (isset($result['error'])) {
-            header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) . '&error=' . $result['error']);
-        } else {
-            header('Location: index.php?carpeta=' . urlencode($carpetaRelativa));
-        }
+        header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) . '&error=El archivo supera el límite del servidor');
         exit;
+    }
+
+    if (isset($_FILES['archivo'])) {
+        if ($_FILES['archivo']['error'] === UPLOAD_ERR_OK) {
+            $forzarUpload = ($_POST['forzar'] ?? '0') === '1';
+            $result = $explorerService->upload($rutaActual, $_FILES['archivo'], $forzarUpload);
+            
+            if ($esAjax) {
+                header('Content-Type: application/json');
+                echo json_encode($result);
+                exit;
+            }
+            // Fallback para forms tradicionales
+            if (isset($result['error'])) {
+                header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) . '&error=' . $result['error']);
+            } else {
+                header('Location: index.php?carpeta=' . urlencode($carpetaRelativa));
+            }
+            exit;
+        } else {
+            // El archivo llegó pero con un código de error de PHP (ej. 1 = UPLOAD_ERR_INI_SIZE)
+            $msgError = 'Error al subir el archivo (Cód. ' . $_FILES['archivo']['error'] . ')';
+            if ($_FILES['archivo']['error'] == UPLOAD_ERR_INI_SIZE || $_FILES['archivo']['error'] == UPLOAD_ERR_FORM_SIZE) {
+                $msgError = 'El archivo supera el peso máximo permitido.';
+            }
+            if ($esAjax) {
+                header('Content-Type: application/json');
+                echo json_encode(['error' => $msgError]);
+                exit;
+            }
+            header('Location: index.php?carpeta=' . urlencode($carpetaRelativa) . '&error=' . urlencode($msgError));
+            exit;
+        }
     }
 
 
