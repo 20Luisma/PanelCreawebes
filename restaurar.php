@@ -20,6 +20,14 @@ $dir  = $root . '/_backups/registros';
 $zips = is_dir($dir) ? glob($dir.'/*.zip') : [];
 usort($zips, fn($a,$b)=>(@filemtime($b)?:0)-(@filemtime($a)?:0));
 
+if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['accion']??'')==='eliminar') {
+    if (!hash_equals($_SESSION['csrf_restore'], $_POST['csrf'] ?? '')) die('CSRF');
+    $zipDel = basename($_POST['zip']??'');
+    $fileDel = $dir . '/' . $zipDel;
+    if(file_exists($fileDel) && str_ends_with($zipDel, '.zip')) @unlink($fileDel);
+    header('Location: restaurar.php'); exit;
+}
+
 // Autoarranque: POST limpio -> setea sesión y redirige GET
 if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['accion']??'')==='init') {
   if (!hash_equals($_SESSION['csrf_restore'], $_POST['csrf'] ?? '')) die('CSRF');
@@ -63,7 +71,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['accion']??'')==='init') {
       <?php foreach($zips as $i=>$z): ?>
       <tr>
         <td><input type="radio" name="zip" value="<?=htmlspecialchars(basename($z))?>" <?=$i===0?'checked':''?>></td>
-        <td><?=htmlspecialchars(basename($z))?></td>
+        <td><?=htmlspecialchars(basename($z))?> <span style="cursor:pointer; color:#d32f2f; margin-left:10px" onclick="eliminarBackup('<?=htmlspecialchars(basename($z))?>')" title="Eliminar copia">🗑️</span></td>
         <td><?=date('d-m-Y H:i', @filemtime($z)?:0)?></td>
         <td><?=number_format((@filesize($z)?:0)/1048576,2)?> MB</td>
       </tr>
@@ -120,6 +128,14 @@ function pct(){
   const p = total? Math.round(proc*100/total) : 100;
   const b=document.querySelector('#barra div');
   b.style.width=p+'%'; b.textContent=p+'%';
+}
+function eliminarBackup(zipName) {
+  if(!confirm('¿Seguro deseas eliminar la copia ' + zipName + '?')) return;
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.innerHTML = '<input type="hidden" name="accion" value="eliminar"><input type="hidden" name="csrf" value="'+CSRF+'"><input type="hidden" name="zip" value="'+zipName+'">';
+  document.body.appendChild(form);
+  form.submit();
 }
 function post(accion, payload={}){
   const body=new URLSearchParams(Object.assign({accion, zip: ZIP, csrf: CSRF}, payload));

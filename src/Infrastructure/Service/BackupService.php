@@ -197,18 +197,39 @@ class BackupService {
         $fh = fopen($manifestPath, 'w');
         if (!$fh) throw new Exception('No se pudo crear manifiesto');
 
-        $rii = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($this->root, FilesystemIterator::SKIP_DOTS | FilesystemIterator::FOLLOW_SYMLINKS),
-            RecursiveIteratorIterator::SELF_FIRST
-        );
+        $allowedDirs = ['src', 'assets', 'partials', 'test'];
+        $allowedExts = ['php', 'json', 'mp3', 'md', 'txt', 'xml', 'html', 'css', 'js'];
 
-        foreach ($rii as $file) {
-            if ($file->isDir()) continue;
-            $abs = $file->getPathname();
-            $rel = $this->normalizeRel($abs);
-            if ($this->shouldExclude($rel)) continue;
-            fwrite($fh, $abs . "\n");
-            $total++;
+        $items = @scandir($this->root);
+        if (is_array($items)) {
+            foreach ($items as $f) {
+                if ($f === '.' || $f === '..') continue;
+                $abs = $this->root . DIRECTORY_SEPARATOR . $f;
+                if (!is_dir($abs)) {
+                    $ext = strtolower(pathinfo($f, PATHINFO_EXTENSION));
+                    if (in_array($ext, $allowedExts) || str_starts_with($f, '.env') || $f === '.htaccess' || $f === '.gitignore') {
+                        if ($ext === 'zip') continue;
+                        fwrite($fh, $abs . "\n");
+                        $total++;
+                    }
+                }
+            }
+        }
+
+        foreach ($allowedDirs as $dir) {
+            $dirAbs = $this->root . DIRECTORY_SEPARATOR . $dir;
+            if (is_dir($dirAbs)) {
+                $rii = new RecursiveIteratorIterator(
+                    new RecursiveDirectoryIterator($dirAbs, FilesystemIterator::SKIP_DOTS | FilesystemIterator::FOLLOW_SYMLINKS),
+                    RecursiveIteratorIterator::SELF_FIRST
+                );
+                foreach ($rii as $file) {
+                    if ($file->isDir()) continue;
+                    if (strtolower($file->getExtension()) === 'zip') continue;
+                    fwrite($fh, $file->getPathname() . "\n");
+                    $total++;
+                }
+            }
         }
         fclose($fh);
     }

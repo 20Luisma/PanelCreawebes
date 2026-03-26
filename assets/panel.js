@@ -533,15 +533,25 @@ const miUsuarioDesdeIndex = panelConfig.miUsuarioDesdeIndex;
                     div.style.boxShadow = '0 0 10px rgba(0,0,0,0.1)';
                     div.innerHTML = `<strong>${msg.de}:</strong> ${msg.texto}`;
                     div.style.cursor = 'pointer';
-                    div.onclick = () => window.open('chat.php?usuario=' + encodeURIComponent(msg.de), '_blank');
+                    
+                    const hidePopupIfEmpty = () => {
+                        if (popupChat.querySelectorAll('.popup-mensaje').length === 0) {
+                            popupChat.style.display = 'none';
+                            document.title = "Explorador – Creawebes";
+                        }
+                    };
+
+                    div.onclick = () => {
+                        window.open('chat.php?usuario=' + encodeURIComponent(msg.de), '_blank');
+                        div.remove();
+                        hidePopupIfEmpty();
+                    };
+                    
                     popupChat.appendChild(div);
 
                     setTimeout(() => {
                         div.remove();
-                        if (popupChat.childElementCount === 0) {
-                            popupChat.style.display = 'none';
-                            document.title = "Explorador – Creawebes";
-                        }
+                        hidePopupIfEmpty();
                     }, 7000);
                 });
             }

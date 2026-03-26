@@ -5,6 +5,7 @@
  * Se consume vía AJAX para no bloquear el render de la página.
  */
 require_once __DIR__ . '/verificar_sesion.php';
+session_write_close(); // Libera el lock de la sesión para evitar blocking de concurrencia //
 
 header('Content-Type: application/json; charset=utf-8');
 

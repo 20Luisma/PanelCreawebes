@@ -9,6 +9,7 @@ if (!isset($_SESSION['logueado']) || $_SESSION['logueado'] !== true) {
     echo json_encode(['error' => 'No autorizado']);
     exit;
 }
+session_write_close(); // Libera el lock de la sesión de PHP
 
 require_once __DIR__ . '/src/autoload.php';
 

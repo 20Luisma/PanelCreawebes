@@ -25,7 +25,8 @@ if (!isset($_SESSION['logueado']) || $_SESSION['logueado'] !== true) {
 <body>
 <h1>🧩 Crear copia de seguridad</h1>
 
-<button onclick="iniciar()">Crear copia ahora</button>
+<button id="btnCreate" onclick="iniciar()">Crear copia ahora</button>
+<button id="btnAbort" onclick="abortar()" style="display:none; background:#d32f2f;">🛑 Abortar Backup</button>
 <div id="progresoBox" style="display:none">
   <div id="barra"><div>0%</div></div>
   <div id="log"></div>
@@ -33,10 +34,15 @@ if (!isset($_SESSION['logueado']) || $_SESSION['logueado'] !== true) {
 
 <script>
 let total = 0, procesados = 0;
+function abortar() {
+  if(!confirm('¿Estás seguro de cancelar la copia en curso?')) return;
+  fetchPaso('abort');
+}
 function iniciar(){
-  document.querySelector('button').disabled = true;
+  document.getElementById('btnCreate').disabled = true;
+  document.getElementById('btnAbort').style.display = 'inline-block';
   document.getElementById('progresoBox').style.display='block';
-  log('⏳ Iniciando creación de copia de seguridad...');
+  log('⏳ Iniciando creación de copia de seguridad (Solo configuraciones y motor PHP)...');
   fetchPaso('init');
 }
 
@@ -48,11 +54,13 @@ function fetchPaso(accion){
       if(data.error){ log('❌ '+data.error); return; }
       if(accion==='init'){ total = data.total; procesados = 0; }
       if(accion==='chunk'){ procesados = data.procesados; }
+      if(accion==='abort'){ log('🛑 Copia abortada por el usuario.'); document.getElementById('btnAbort').style.display='none'; return; }
       actualizarBarra();
       if(data.finalizado){
-        log('✅ Copia creada: '+data.nombre);
-        log('📄 Informe: '+data.informe);
-        document.getElementById('log').innerHTML += '<br><button onclick="window.location.href=\'index.php\'">🔙 Volver al inicio</button>';
+        log('✅ Copia del esqueleto creada: '+data.nombre);
+        log('📄 Informe guardado.');
+        document.getElementById('btnAbort').style.display = 'none';
+        document.getElementById('log').innerHTML += '<br><button onclick="window.location.href=\'index.php\'">🔙 Volver al panel</button>';
       } else {
         fetchPaso('chunk');
       }

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/verificar_sesion.php';
+session_write_close(); // Libera el lock de la sesión para evitar blocking concurrentes //
 
 if (empty($_SESSION['logueado'])) {
     http_response_code(403);

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/verificar_sesion.php';
+session_write_close();
 
 if (empty($_SESSION['logueado'])) {
     header('HTTP/1.1 403 Forbidden');

@@ -68,3 +68,21 @@
             </form>
         </div>
     </div>
+
+    <!-- ### NUEVO ### Contenedores y audios para el sistema de Notificaciones de Chat (Recuperados) -->
+    <audio id="sonido-aviso-chat" src="notificacion.mp3" preload="auto"></audio>
+    <audio id="sonido-llamada" src="llamada.mp3" preload="auto"></audio>
+
+    <div id="popup-chat" style="display:none; position:fixed; bottom:20px; right:20px; width:300px; max-height:400px; overflow-y:auto; background:#f5f8ff; border:2px solid #3949ab; border-radius:10px; padding:10px; box-shadow:0 4px 15px rgba(0,0,0,0.2); z-index:9999;">
+        <h3 style="margin-top:0; color:#3949ab; font-size:1.1rem; border-bottom:1px solid #ccc; padding-bottom:5px;">💬 Nuevos Mensajes</h3>
+        <!-- Los mensajes se insertarán aquí dinámicamente -->
+    </div>
+
+    <div id="popup-llamada" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); background:#fff; border:3px solid #28a745; border-radius:15px; padding:20px; text-align:center; box-shadow:0 10px 30px rgba(0,0,0,0.5); z-index:10000; min-width:300px;">
+        <h2 style="color:#28a745; margin-top:0;">📞 Llamada Entrante</h2>
+        <p style="font-size:1.2rem; margin:15px 0;"><strong id="llamada-de"></strong> te está llamando...</p>
+        <div style="display:flex; justify-content:space-around; margin-top:20px;">
+            <button onclick="aceptarLlamada()" style="background:#28a745; color:white; border:none; padding:10px 20px; border-radius:25px; font-size:1.1rem; cursor:pointer; font-weight:bold;">✅ Contestar</button>
+            <button onclick="rechazarLlamada()" style="background:#dc3545; color:white; border:none; padding:10px 20px; border-radius:25px; font-size:1.1rem; cursor:pointer; font-weight:bold;">❌ Rechazar</button>
+        </div>
+    </div>
