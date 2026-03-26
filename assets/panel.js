@@ -600,6 +600,105 @@ document.addEventListener('DOMContentLoaded', () => {
     const filenameSpan = document.getElementById('dropzone-filename');
     const btnUpload = document.getElementById('btnUploadConfirm');
 
+    // -------------------------------------------------------
+    // 🛡️ ESCUDO GLOBAL: impide que el browser abra el archivo
+    //    si el usuario lo suelta fuera del dropzone.
+    //    Sin esto, cualquier drop fuera del área lo navega.
+    // -------------------------------------------------------
+    let dragDepth = 0; // Contador para manejar enter/leave de hijos
+
+    // Overlay de pantalla completa que guía al usuario
+    const overlay = document.createElement('div');
+    overlay.id = 'drag-global-overlay';
+    overlay.innerHTML = `
+        <div class="drag-overlay-inner">
+            <span class="drag-overlay-icon">📂</span>
+            <p class="drag-overlay-text">Soltá el archivo para subir al panel</p>
+        </div>`;
+    overlay.style.cssText = `
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(99,102,241,0.18);
+        backdrop-filter: blur(6px);
+        z-index: 9999;
+        align-items: center;
+        justify-content: center;
+        border: 3px dashed var(--color-primario, #6366f1);
+        pointer-events: all;
+    `;
+    document.body.appendChild(overlay);
+
+    // Estilos inline del inner (funciona sin CSS externo)
+    const overlayInner = overlay.querySelector('.drag-overlay-inner');
+    overlayInner.style.cssText = `
+        display: flex; flex-direction: column; align-items: center;
+        gap: 1rem; background: rgba(255,255,255,0.12);
+        padding: 3rem 4rem; border-radius: 24px;
+        backdrop-filter: blur(12px);
+        border: 2px solid rgba(255,255,255,0.3);
+        box-shadow: 0 8px 40px rgba(99,102,241,0.25);
+    `;
+    overlay.querySelector('.drag-overlay-icon').style.cssText = `font-size: 4rem; line-height:1;`;
+    overlay.querySelector('.drag-overlay-text').style.cssText = `
+        font-size: 1.4rem; font-weight: 700;
+        color: var(--color-primario, #6366f1); margin: 0;
+    `;
+
+    // Detecta si el drag viene de FUERA del browser (archivos del SO)
+    const esArchivoExterno = (e) => {
+        if (!e.dataTransfer) return false;
+        return Array.from(e.dataTransfer.types).some(t => t === 'Files');
+    };
+
+    document.addEventListener('dragenter', (e) => {
+        if (!esArchivoExterno(e)) return;
+        e.preventDefault();
+        dragDepth++;
+        overlay.style.display = 'flex';
+    });
+
+    document.addEventListener('dragleave', (e) => {
+        if (!esArchivoExterno(e)) return;
+        dragDepth--;
+        if (dragDepth <= 0) {
+            dragDepth = 0;
+            overlay.style.display = 'none';
+        }
+    });
+
+    document.addEventListener('dragover', (e) => {
+        // 🛡️ CRÍTICO: sin esto el browser abre el archivo
+        e.preventDefault();
+    });
+
+    document.addEventListener('drop', (e) => {
+        // 🛡️ CRÍTICO: bloquea el drop nativo en todo el documento
+        e.preventDefault();
+        dragDepth = 0;
+        overlay.style.display = 'none';
+    });
+
+    // El drop en el overlay captura el archivo y lo manda al flujo de subida
+    overlay.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragDepth = 0;
+        overlay.style.display = 'none';
+        const files = e.dataTransfer.files;
+        if (files.length > 0 && dropzone && fileInput) {
+            setFileForUpload(files[0]);
+            // Abrir el panel de subida si estaba cerrado
+            const subidaPanel = document.getElementById('subida');
+            if (subidaPanel && subidaPanel.style.display === 'none') {
+                subidaPanel.style.display = 'block';
+            }
+            // Scroll hasta el dropzone para que el usuario lo vea
+            dropzone.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    });
+    // -------------------------------------------------------
+
     if (dropzone && fileInput) {
 
         ['dragenter', 'dragover'].forEach(evt => {
@@ -629,38 +728,40 @@ document.addEventListener('DOMContentLoaded', () => {
         fileInput.addEventListener('change', () => {
             if (fileInput.files.length > 0) setFileForUpload(fileInput.files[0]);
         });
+    }
 
-        function setFileForUpload(file) {
-            filenameSpan.textContent = `📄 ${file.name}`;
-            preview.style.display = 'flex';
-            preview.style.alignItems = 'center';
-            preview.style.flexWrap = 'wrap';
-            dropzone.classList.add('dropzone--ready');
+    // ✅ Definida fuera del if() para que sea accesible desde el overlay global
+    function setFileForUpload(file) {
+        if (!dropzone || !filenameSpan || !preview || !btnUpload) return;
+        filenameSpan.textContent = `📄 ${file.name}`;
+        preview.style.display = 'flex';
+        preview.style.alignItems = 'center';
+        preview.style.flexWrap = 'wrap';
+        dropzone.classList.add('dropzone--ready');
 
-            btnUpload.onclick = async () => {
-                btnUpload.disabled = true;
-                btnUpload.textContent = '⏳ Subiendo...';
-                const formData = new FormData();
-                formData.append('archivo', file);
-                const carpeta = panelConfig.carpetaRelativaUrlEncoded || '';
-                try {
-                    const response = await fetch(`index.php?carpeta=${carpeta}`, {
-                        method: 'POST',
-                        body: formData
-                    });
-                    if (response.ok) {
-                        btnUpload.textContent = '✅ ¡Listo!';
-                        setTimeout(() => window.location.reload(), 800);
-                    } else {
-                        btnUpload.textContent = '❌ Error al subir';
-                        btnUpload.disabled = false;
-                    }
-                } catch (err) {
-                    btnUpload.textContent = '❌ Error de red';
+        btnUpload.onclick = async () => {
+            btnUpload.disabled = true;
+            btnUpload.textContent = '⏳ Subiendo...';
+            const formData = new FormData();
+            formData.append('archivo', file);
+            const carpeta = panelConfig.carpetaRelativaUrlEncoded || '';
+            try {
+                const response = await fetch(`index.php?carpeta=${carpeta}`, {
+                    method: 'POST',
+                    body: formData
+                });
+                if (response.ok) {
+                    btnUpload.textContent = '✅ ¡Listo!';
+                    setTimeout(() => window.location.reload(), 800);
+                } else {
+                    btnUpload.textContent = '❌ Error al subir';
                     btnUpload.disabled = false;
                 }
-            };
-        }
+            } catch (err) {
+                btnUpload.textContent = '❌ Error de red';
+                btnUpload.disabled = false;
+            }
+        };
     }
 
     // ---- 2. DRAG & DROP PARA MOVER ARCHIVOS DENTRO DEL PANEL ----
