@@ -1,0 +1,13 @@
+{
+    "name": "creawebes/panel",
+    "description": "Panel de Administracion Archivos",
+    "type": "project",
+    "authors": [
+        {
+            "name": "Martín"
+        }
+    ],
+    "require-dev": {
+        "phpunit/phpunit": "^13.0"
+    }
+}

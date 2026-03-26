@@ -25,6 +25,14 @@ jobs:
           echo "Ejecutando Php Linting para descartar errores fatales de sintaxis..."
           find . -type f -name '*.php' -not -path "./vendor/*" -exec php -l {} \; | grep -v "No syntax errors" || true
 
+      - name: Instalar dependencias de Composer (Testing)
+        run: composer install --prefer-dist --no-progress
+
+      - name: Pruebas Unitarias (PHPUnit)
+        run: |
+          echo "Ejecutando suite de seguridad..."
+          vendor/bin/phpunit
+
       - name: Instalar SSHPass
         run: sudo apt-get install -y sshpass
 
