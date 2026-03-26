@@ -110,8 +110,13 @@ $archivosSistema = [
     // --- HERRAMIENTAS DE DESARROLLO (NO DEBEN SER VISIBLES) ---
     '.agents',
     '.git',
+    '.github',
     '.vscode',
     '.cursorrules',
+    '.phpunit.cache',
+    'phpunit.xml',
+    'composer.json',
+    'composer.lock',
 
     // --- CONFIGURACIÓN Y ENTORNO ---
     '.env',
